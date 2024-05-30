@@ -10,3 +10,7 @@
 1. `triangulate_from_viewpoints` in the `utils.py` file takes all the views for a house, and the detected vertices in the 2D images, triangulates each pair (of the same class) from each pair of images and keeps the ones within some reprojection error. TODO :  Add an evaluation metric on howm many vertices we get close to the ground truth vertices - would help in independetly making this part of the project better.
 2. `get_edges_with_support` in `utils.py` is used for deciding which of the triangulated 3D points should have an edge between them. Parameters can be tweaked as several edges are not classified as of now. Would help in saving the projected lines on top of the segmentation masks to see what is happening.
 3. Use `visualize_triangulated_gt_vertices.py` to visualize a result in 3D
+
+### Running the pipeline
+The file `solution_v1.py` contains the the handcrafted solution. Executing the tasks parallely sometimes gets the processes killed, probably because of resources - need to look into that. 
+Might have to first create the dir data/output in the project home directory and run it from the same path to not have any path related issues.
