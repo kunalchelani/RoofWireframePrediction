@@ -1,5 +1,6 @@
 import open3d as o3d
 import numpy as np
+from hoho.color_mappings import gestalt_color_mapping
 
 def get_triangulated_pts_o3d_pc(triangulated_corners, triangulated_corner_classes, gestalt_color_mapping):
     triangulated_pts_o3d = o3d.geometry.PointCloud()
@@ -29,7 +30,6 @@ def get_open3d_point_cloud(triangulated_points, vertex_types):
     :param vertices: vertices of the gestalt
     :return: open3d point cloud
     """
-    import open3d as o3d
     pcd = o3d.geometry.PointCloud()
     
     if not isinstance(triangulated_points, np.ndarray):
@@ -48,7 +48,6 @@ def get_open3d_point_cloud(triangulated_points, vertex_types):
     return pcd
 
 def get_open3d_lines(verts, edges):
-    import open3d as o3d
     o3d_lineset = o3d.geometry.LineSet()
     o3d_lineset.points = o3d.utility.Vector3dVector(np.array(verts).reshape(-1,3))
     o3d_lineset.lines = o3d.utility.Vector2iVector(np.array(edges).reshape(-1,2))

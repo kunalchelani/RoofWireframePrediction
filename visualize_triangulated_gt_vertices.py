@@ -12,7 +12,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     house_number = args.house_number
 
-    base_path = "/local/kunal/lines_localize/challenge/huggingspace_model/data/output"
+    base_path = "data/output"
 
     fnames = os.listdir(base_path)
     house_numbers = set([fname.split('_')[1] for fname in fnames])

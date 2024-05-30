@@ -21,7 +21,7 @@ from hoho import compute_WED
 import cv2
 from tqdm import tqdm
 import time
-
+import os
 
 def solution_hc(data, process_points_intermediate = False, merge_threshold = 20, save_as_o3d = False):
 
@@ -50,6 +50,10 @@ def solution_hc(data, process_points_intermediate = False, merge_threshold = 20,
     
     if save_as_o3d:
         
+        save_dir = "data/output/"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
         import o3d_utils
 
         predicted_wf_o3d = o3d_utils.get_wireframe_o3d(triangulated_corners_merged, pred_edges_merged)
