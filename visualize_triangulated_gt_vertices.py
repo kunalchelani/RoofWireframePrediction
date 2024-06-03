@@ -18,6 +18,7 @@ if __name__ == "__main__":
     house_numbers = set([fname.split('_')[1] for fname in fnames])
     house_numbers = sorted(list(house_numbers))
     house_number = house_numbers[int(house_number)]
+    print(f"Visualizing house {house_number}")
     
     triangulated_pts_ply_path = base_path + f"/house_{house_number}_triangulated_pts_merged.ply"
     gt_lines_ply_path = base_path + f"/house_{house_number}_gt_lines.ply"

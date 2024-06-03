@@ -38,8 +38,10 @@ def get_open3d_point_cloud(triangulated_points, vertex_types):
     colors = np.zeros_like(triangulated_points)
     apex_inds = np.array([v == 'apex' for v in vertex_types]).astype(bool)
     eave_inds = np.array([v == 'eave_end_point' for v in vertex_types]).astype(bool)
-    colors[apex_inds] = np.array(gestalt_color_mapping['apex'])
-    colors[eave_inds] = np.array(gestalt_color_mapping['eave_end_point'])
+    if sum(apex_inds) > 0:
+        colors[apex_inds] = np.array(gestalt_color_mapping['apex'])
+    if sum(eave_inds) > 0:
+        colors[eave_inds] = np.array(gestalt_color_mapping['eave_end_point'])
 
     pcd.points = o3d.utility.Vector3dVector(triangulated_points)
     # print(colors)
@@ -52,3 +54,23 @@ def get_open3d_lines(verts, edges):
     o3d_lineset.points = o3d.utility.Vector3dVector(np.array(verts).reshape(-1,3))
     o3d_lineset.lines = o3d.utility.Vector2iVector(np.array(edges).reshape(-1,2))
     return o3d_lineset
+
+
+def update_visualization_add_triangulated_point(vis, new_point, new_color):
+    """
+    Update the visualization by adding a new point
+    :param geometries: list of geometries
+    :param new_point: new point to add
+    :param new_color: color of the new point
+    :return: updated list of geometries
+    """
+    new_point = np.array(new_point).reshape(1,3)
+    new_color = np.array(new_color).reshape(1,3)
+    new_pcd = o3d.geometry.PointCloud()
+    new_pcd.points = o3d.utility.Vector3dVector(new_point)
+    new_pcd.colors = o3d.utility.Vector3dVector(new_color)
+
+    vis.add_geometry(new_pcd)
+    vis.update_renderer()
+
+    return False

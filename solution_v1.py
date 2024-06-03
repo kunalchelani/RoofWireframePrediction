@@ -23,7 +23,7 @@ from tqdm import tqdm
 import time
 import os
 
-def solution_hc(data, process_points_intermediate = False, merge_threshold = 20, save_as_o3d = False):
+def solution_hc(data, process_points_intermediate = False, merge_threshold = 20, save_as_o3d = False, debug_visualize_triangulation = False, debug_visualize_edges = False):
 
     key = data['__key__']
     gestalt_segmented_images = data['gestalt']
@@ -32,13 +32,33 @@ def solution_hc(data, process_points_intermediate = False, merge_threshold = 20,
     Rs = data['R']
     ts = data['t']
     
-    triangulated_corners, triangulated_corner_classes = get_triangulated_corners(gestalt_segmented_images, depth_images, Ks, Rs, ts)
+    gt_lines_o3d = None
+    if debug_visualize_triangulation:
+        import o3d_utils
+        gt_lines_o3d = o3d_utils.get_wireframe_o3d(data['wf_vertices'], data['wf_edges'])
+        save_base_path = "data/output/debug_triangulation"
+        if not os.path.exists(save_base_path):
+            os.makedirs(save_base_path)
+
+    triangulated_corners, triangulated_corner_classes = get_triangulated_corners(gestalt_segmented_images, depth_images, Ks, Rs, ts,
+                                                                                debug_visualize = debug_visualize_triangulation,
+                                                                                gt_lines_o3d = gt_lines_o3d)
 
     if process_points_intermediate:
         triangulated_corners_merged, triangulated_corner_classes_merged = process_points(triangulated_corners, triangulated_corner_classes, merge = True, merge_threshold = merge_threshold)
 
-    pred_edges_merged = get_edges_with_support(triangulated_corners_merged, triangulated_corner_classes_merged, gestalt_segmented_images, Ks, Rs, ts)
-    pred_edges = get_edges_with_support(triangulated_corners, triangulated_corner_classes, gestalt_segmented_images, Ks, Rs, ts)
+    pred_edges_merged, vertex_edge_count_merged = get_edges_with_support(triangulated_corners_merged, triangulated_corner_classes_merged, gestalt_segmented_images, Ks, Rs, ts,
+                                                                         debug_visualize = debug_visualize_edges,
+                                                                         house_number = key)
+    pred_edges, vertex_edge_count = get_edges_with_support(triangulated_corners, triangulated_corner_classes, gestalt_segmented_images, Ks, Rs, ts)
+
+    # remove points with no edges
+    # triangulated_corners_merged = [triangulated_corners_merged[i] for i in range(len(triangulated_corners_merged)) if vertex_edge_count_merged[i] > 0]
+    # triangulated_corner_classes_merged = [triangulated_corner_classes_merged[i] for i in range(len(triangulated_corners_merged)) if vertex_edge_count_merged[i] > 0]
+     
+    # triangulated_corners = [triangulated_corners[i] for i in range(len(triangulated_corners)) if vertex_edge_count[i] > 0]
+    # triangulated_corner_classes = [triangulated_corner_classes[i] for i in range(len(triangulated_corners)) if vertex_edge_count[i] > 0]
+
     # Save the o3d pointcloud and gt_lineset to ply files
     data_name = f"house_{key}"
     
@@ -112,7 +132,10 @@ def main(args):
             key, pred_vertices, pred_edges, computed_wed, computed_wed_merged = solution_hc(sample, 
                                                                                             process_points_intermediate = args.process_points_intermediate,
                                                                                             merge_threshold = args.merge_threshold,
-                                                                                            save_as_o3d=args.save_as_o3d)
+                                                                                            save_as_o3d=args.save_as_o3d,
+                                                                                            debug_visualize_triangulation = args.debug_visualize_triangulation,
+                                                                                            debug_visualize_edges = args.debug_visualize_edges)
+            # ipdb.set_trace()
             weds.append(computed_wed)
             weds_merged.append(computed_wed_merged)
             solution.append({
@@ -136,6 +159,8 @@ if __name__ == "__main__":
     parser.add_argument('--parallel', action = 'store_true', help = 'Run the solution in parallel')
     parser.add_argument('--process_points_intermediate', action = 'store_true', help = 'Process the points intermediate')
     parser.add_argument('--merge_threshold', type = float, default = 20, help = 'Process the points intermediate')
+    parser.add_argument('--debug_visualize_triangulation', action = 'store_true', help = 'Debug visualize the triangulation')
+    parser.add_argument('--debug_visualize_edges', action = 'store_true', help = 'Debug visualize the edges')
     args = parser.parse_args()
 
     main(args)
