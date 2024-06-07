@@ -13,7 +13,7 @@ def get_iterable_hoho_dataset():
     data_dir = Path('/local/kunal/lines_localize/challenge/data/data')
     split = 'train'
     hoho.LOCAL_DATADIR = hoho.setup(data_dir)
-    dataset = hoho.get_dataset(decode=None, split='train', dataset_type='webdataset')
+    dataset = hoho.get_dataset(decode=None, split=split, dataset_type='webdataset')
     dataset = dataset.map(hoho.decode)
     iterable_dataset = iter(dataset)
     return iterable_dataset
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     
     weds = []
     times = []
-    for i in tqdm(range(500)):
+    for i in tqdm(range(100)):
         sample = next(iterable_dataset)
         
         start = time.time()
@@ -46,7 +46,7 @@ if __name__ == "__main__":
         
         house_data.merge_triangulated_monocular_corners()
         
-        house_data.get_edges()
+        house_data.get_edges(method='no_edges')
 
         house_data.compute_metric()
         end = time.time()

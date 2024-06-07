@@ -167,7 +167,8 @@ class HouseData():
                             # Mark the other triangulated points as outliers
                             for tri_ind in vertex['tri_corner_inds']:
                                 if tri_ind != vertex['tri_corner_inds'][min_ind]:
-                                    outliers_triangulated[tri_ind] = True
+                                    # outliers_triangulated[tri_ind] = True
+                                    continue
 
                             # Keep the one closest to monocular depth
                             # Visualize all positions
@@ -188,7 +189,8 @@ class HouseData():
 
                             for tri_ind in vertex['tri_corner_inds']:
                                 if tri_ind != vertex['tri_corner_inds'][min_ind]:
-                                    outliers_triangulated[tri_ind] = True
+                                    # outliers_triangulated[tri_ind] = True
+                                    continue
         
         for i, vertex_set in enumerate(self.vertices_2d):
             for j, vertex in enumerate(vertex_set):
@@ -213,14 +215,17 @@ class HouseData():
         # o3d.visualization.draw_geometries([merged_pts_o3d, gt_house_wf])
         
         if merge_neighbors_final:
-            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 100, remove = False, append = False)
+            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 50, remove = False, append = False)
         
         self.pred_wf_vertices = merged_pts
         self.pred_wf_vertices_classes = merged_pts_classes
     
     
-    def get_edges(self, method = 'handcrafted', visualize = True):
-        if method == 'handcrafted':
+    def get_edges(self, method = 'handcrafted', visualize = False):
+        if method == 'no_edges':
+            self.pred_wf_edges = []
+        
+        elif method == 'handcrafted':
             self.pred_wf_edges, _ = get_edges_with_support(self.pred_wf_vertices, self.pred_wf_vertices_classes, 
                                                         self.gestalt_images,
                                                         self.Ks, self.Rs, self.ts,
@@ -230,7 +235,12 @@ class HouseData():
                                                         debug_visualize = False, house_number = "house")
             
             
+            # self.pred_wf_edges = []
             # Visualize the predicted and ground truth wireframes
+            print(f"House key: {self.house_key}")
+            print("Num vertices in predicted wireframe: ", len(self.pred_wf_vertices))
+            print("Num edges in predicted wireframe: ", len(self.pred_wf_edges))
+            
             if visualize:
                 o3d_gt_wf = o3d.geometry.LineSet()
                 o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))

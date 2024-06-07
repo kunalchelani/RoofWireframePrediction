@@ -516,7 +516,7 @@ def visualize_edge(pt1, pt2, gt_points, gt_edges, horizontal_components, vertica
 
 
 def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmented_images, Ks, Rs, ts, horizontal_components = None, vertical_component = None,
-                           gt_wireframe = None, debug_visualize = True, house_number = "house"):
+                           gt_wireframe = None, debug_visualize = False, house_number = "house"):
     # For each edge, find the supporting points
     edges = []
     vertex_edge_count = {i:0 for i in range(len(points_3d_coords))}
@@ -564,15 +564,15 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
                 elif class_i == "apex" and class_j == "apex":
                     vertical_alignment = np.abs(vertical_component.dot(line_3d_direction))
                     if vertical_alignment > 0.1:
-                        print("Rejecting edge due to vertical alignment")
-                        print(vertical_alignment)
+                        # print("Rejecting edge due to vertical alignment")
+                        # print(vertical_alignment)
                         # visualize_edge(points_3d_coords[i], points_3d_coords[j], gt_wireframe[0], gt_wireframe[1], horizontal_components, vertical_component)
                         continue
 
                     min_horizontal_alignment = np.min(np.abs(horizontal_components.dot(line_3d_direction)))
                     if min_horizontal_alignment > 0.1:
-                        print("Rejecting edge due to horizontal alignments")
-                        print(np.abs(horizontal_components.dot(line_3d_direction)))
+                        # print("Rejecting edge due to horizontal alignments")
+                        # print(np.abs(horizontal_components.dot(line_3d_direction)))
                         # print(horizontal_components)
                         # visualize_edge(points_3d_coords[i], points_3d_coords[j], gt_wireframe[0], gt_wireframe[1], horizontal_components, vertical_component)
                         continue
@@ -720,10 +720,22 @@ def compute_min_dists_to_gt(perdicted_points, gt_points):
     return min_dists_pred_to_gt, min_dists_gt_to_pred
 
 
-def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, max_z = 2000):
+def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, max_z = 3000, average = False):
 
     # ipdb.set_trace()
     # Get the positions we need to look in the depth images
+    
+    # We want a 5x5 window around the points to get the average depth
+    if average:
+        for position in positions:
+            ipdb.set_trace()
+            x,y = position
+            X,Y = np.mgrid[x-2:x+3, y-2:y+3]
+            grid = np.vstack((X.ravel(), Y.ravel())).T 
+            depths = monocular_depth[Y,X]
+            uv = np.hstack((grid, np.ones((grid.shape[0], 1)))).astype(np.int32)
+            xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
+    
     uv = np.hstack((positions, np.ones((positions.shape[0], 1)))).astype(np.int32)
 
     # Sample the depths at these points
@@ -747,14 +759,17 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t):
     projected_pts = np.rint(np.dot(projection_matrix, sfm_points_h.T).T)
     
     projected_pts[:,:2] /= projected_pts[:,2].reshape(-1,1)
-
+    non_zero = projected_pts[:,2] != 0
+    projected_pts = projected_pts[non_zero]
+    
     x = projected_pts[:,0].astype(np.int32)
     y = projected_pts[:,1].astype(np.int32)
     z = projected_pts[:,2]
 
+     
     # print(z.min(), z.max())
     # use only the 25 percent closest points
-    max_z = np.percentile(z, 30)
+    max_z = np.percentile(z, 25)
     mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z)
 
     x = x[mask]
