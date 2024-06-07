@@ -221,7 +221,7 @@ class HouseData():
         self.pred_wf_vertices_classes = merged_pts_classes
     
     
-    def get_edges(self, method = 'handcrafted', visualize = False):
+    def get_edges(self, method = 'handcrafted', visualize = True):
         if method == 'no_edges':
             self.pred_wf_edges = []
         
@@ -241,20 +241,33 @@ class HouseData():
             print("Num vertices in predicted wireframe: ", len(self.pred_wf_vertices))
             print("Num edges in predicted wireframe: ", len(self.pred_wf_edges))
             
-            if visualize:
-                o3d_gt_wf = o3d.geometry.LineSet()
-                o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
-                o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+        if visualize:
+            o3d_gt_wf = o3d.geometry.LineSet()
+            o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+            o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
 
-                o3d_pred_wf = o3d.geometry.LineSet()
-                o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
-                o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
-                if len(self.pred_wf_edges) > 0:
-                    o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0]]*len(self.pred_wf_edges))/255.0)
+            # o3d_pred_wf = o3d.geometry.LineSet()
+            # o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
+            # o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
+            # if len(self.pred_wf_edges) > 0:
+            #     o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0]]*len(self.pred_wf_edges))/255.0)
 
-                o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
+            o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
 
-                o3d.visualization.draw_geometries([o3d_gt_wf, o3d_pred_wf, o3d_pred_points])
+            o3d_major_directions = o3d.geometry.LineSet()
+            origin = np.array([0, 0, 0])
+            end_points = origin + 1000*np.array([[0,0,1], [0,1,0], [1,0,0]])
+            all_points = np.vstack([origin, end_points])
+            o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
+            o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [0, 2], [0, 3]])
+            # color the major directions r g b
+            o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
+
+            sfm_points = o3d.geometry.PointCloud()
+            sfm_points.points = o3d.utility.Vector3dVector(self.sfm_points)
+            sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+            o3d.visualization.draw_geometries([o3d_gt_wf, o3d_pred_points, o3d_major_directions, sfm_points, o3d_major_directions])
 
         else:
             raise NotImplementedError
