@@ -40,7 +40,7 @@ def solution_hc(data, process_points_intermediate = False, merge_threshold = 20,
         if not os.path.exists(save_base_path):
             os.makedirs(save_base_path)
 
-    triangulated_corners, triangulated_corner_classes = get_triangulated_corners(gestalt_segmented_images, depth_images, Ks, Rs, ts,
+    triangulated_corners, triangulated_corner_classes = get_triangulated_corners(gestalt_segmented_images, Ks, Rs, ts,
                                                                                 debug_visualize = debug_visualize_triangulation,
                                                                                 gt_lines_o3d = gt_lines_o3d)
 
@@ -94,7 +94,7 @@ def main(args):
     from concurrent.futures import ProcessPoolExecutor
 
     num_houses = args.num_houses
-    data_dir = Path('./data/')
+    data_dir = Path('/local/kunal/lines_localize/challenge/data/data')
     split = 'all'
     hoho.LOCAL_DATADIR = hoho.setup(data_dir)
     dataset = hoho.get_dataset(decode=None, split='all', dataset_type='webdataset')

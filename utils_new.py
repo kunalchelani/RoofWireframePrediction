@@ -59,3 +59,22 @@ def triangulate_from_viewpoints(Ks, Rs, ts, vertices, debug_visualize = False, g
 
 
     return triangulated_points, vertex_types, pair_inds
+
+def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, max_z = 2000):
+
+    # ipdb.set_trace()
+    # Get the positions we need to look in the depth images
+    uv = np.hstack((positions, np.ones((positions.shape[0], 1)))).astype(np.int32)
+
+    # Sample the depths at these points
+    depths =  monocular_depth[uv[:,1], uv[:,0]]
+
+    # Get the 3D points
+    Kinv = np.linalg.inv(K)
+    
+    xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
+    mask = (xyz[:,2] < max_z).T
+
+    xyz = np.dot(R.T, xyz.T - t.reshape(3,1))
+
+    return xyz.T, mask

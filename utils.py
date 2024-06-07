@@ -305,7 +305,7 @@ def process_points(points, triangulated_corner_classes, merge = True, merge_thre
     return merged_points, merged_classes
 
 
-def get_triangulated_corners(gestalt_segmented_images, depth_images, Ks, Rs, ts, 
+def get_triangulated_corners(gestalt_segmented_images, Ks, Rs, ts, 
                              debug_visualize = False,
                              gt_lines_o3d = None):
 
@@ -327,128 +327,11 @@ def get_triangulated_corners(gestalt_segmented_images, depth_images, Ks, Rs, ts,
     
     return triangulated_vertices, vertex_types
 
-def appropriate_line_close(pt, gest_seg_np, class_i, class_j, patch_size = 10, thresh = 10):
-    # If class i and class j are both apex, then we are looking for a ridge
-    # If class i is apex and class j is eave, then we are looking for a rake or valley
-    # If class i is eave and class j is apex, then we are looking for a rake or valley
-    # If class i and class j are both eave, then we are looking for a eave
-    # If class i is flashing_end_point and class j is apex, then we are looking for rake
-    # If class i is flashing_end_point and class j is eave, then we are looking for rake
-    # Not dealing with other cases for now
-    ridge_color = np.array(gestalt_color_mapping['ridge'])
-    rake_color = np.array(gestalt_color_mapping['rake'])
-    eave_color = np.array(gestalt_color_mapping['eave'])
-    valley_color = np.array(gestalt_color_mapping['valley'])
-    mask = None
-    # get a window around the point
-    window = gest_seg_np[int(pt[1])-2:int(pt[1])+patch_size//2, int(pt[0])-2:int(pt[0])+patch_size//2]
-    if class_i == 'apex' and class_j == 'apex':
-        mask = cv2.inRange(window, ridge_color-thresh/2, ridge_color+thresh/2)
-    elif class_i == 'apex' and class_j == 'eave_end_point':
-        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    elif class_i == 'eave_end_point' and class_j == 'apex':
-        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    elif class_i == 'eave_end_point' and class_j == 'eave_end_point':
-        mask = cv2.inRange(window, eave_color-thresh/2, eave_color+thresh/2)
-    elif class_i == 'flashing_end_point' and class_j == 'apex':
-        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    elif class_i == 'flashing_end_point' and class_j == 'eave_end_point':
-        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    
-    if (mask is not None) and (np.sum(mask) > 1):
-        return True
-    
-    return False
-
-def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmented_images, Ks, Rs, ts, debug_visualize = False, house_number = "house"):
-    # For each edge, find the supporting points
-    edges = []
-    for i in range(len(points_3d_coords)):
-        for j in range(i+1, len(points_3d_coords)):
-            
-            support_ims = 0
-            observed_ims = 0
-
-            for k in range(len(gestalt_segmented_images)):
-
-                gest_seg_np = np.array(gestalt_segmented_images[k])
-                K = Ks[k]
-                R = Rs[k]
-                t = ts[k]
-                
-                # Project the 3D points to the image plane
-                proj_i = np.dot(K, (np.dot(R, points_3d_coords[i]) + t))
-                proj_i = (proj_i/proj_i[2]).astype(np.int32)
-                proj_i = proj_i[:2]
-                proj_j = np.dot(K, (np.dot(R, points_3d_coords[j]) + t))
-                proj_j = (proj_j/proj_j[2]).astype(np.int32)
-                proj_j = proj_j[:2]
-                # Check that both the projections are in the region of the class they belong to
-                class_i = points_3d_classes[i]
-                class_j = points_3d_classes[j]
-
-                # First check if the projections are in the image
-                if proj_i[0] < 0 or proj_i[0] >= gest_seg_np.shape[1] or proj_i[1] < 0 or proj_i[1] >= gest_seg_np.shape[0]:
-                    continue
-                if proj_j[0] < 0 or proj_j[0] >= gest_seg_np.shape[1] or proj_j[1] < 0 or proj_j[1] >= gest_seg_np.shape[0]:
-                    continue
-
-                # Get the 3x3 region around the projections, apply the mask of the class color +- threshold and check the sum of the mask
-                # If the sum is greater than 5, then the point is in the region of the class
-                color_i = np.array(gestalt_color_mapping[class_i])
-                window_i = gest_seg_np[int(proj_i[1])-1:int(proj_i[1])+2, int(proj_i[0])-1:int(proj_i[0])+2]
-                mask_i = cv2.inRange(window_i, color_i-5, color_i+5)
-
-                color_j = np.array(gestalt_color_mapping[class_j])
-                window_j = gest_seg_np[int(proj_j[1])-1:int(proj_j[1])+2, int(proj_j[0])-1:int(proj_j[0])+2]
-                mask_j = cv2.inRange(window_j, color_j-5, color_j+5)
-
-                if np.sum(mask_i) > 5 and np.sum(mask_j) < 5:
-                    continue
-
-                line = np.linspace(proj_i, proj_j, 12)
-                if np.linalg.norm(line[0] - line[-1]) < 50:
-                    continue
-
-                observed_ims += 1
-
-                # ipdb.set_trace()
-                # plot the line and the projected points on top of the segmented image and show
-
-                # plt.imshow(gest_seg_np)
-                # plt.scatter(proj_i[0], proj_i[1], c='red', s=50)
-                # plt.scatter(proj_j[0], proj_j[1], c='red', s=50)
-                # plt.plot(line[:,0], line[:,1], c='black', lw=2)
-                # plt.show()
-
-                support_pts = 0
-                for pt in line[1:-1]:
-                    if appropriate_line_close(pt, gest_seg_np, class_i,class_j, patch_size = 5):
-                        support_pts += 1
-                # print("Support pts: ", support_pts)
-                if support_pts >= 5:
-                    support_ims += 1
-
-                
-
-            # print("Support ims: ", support_ims)
-            # print("Observed ims: ", observed_ims)
-
-            if observed_ims == 0:
-                continue
-            
-            if support_ims/observed_ims > 0.5:
-                edges.append([i,j])    
-    
-    return edges, None
-
-
 # def appropriate_line_close(pt, gest_seg_np, class_i, class_j, patch_size = 10, thresh = 10):
 #     # If class i and class j are both apex, then we are looking for a ridge
-#     # If class i is apex and class j is eave_end_point, then we are looking for a rake or step_flashing
-#     # If class i is eave_endpoint and class j is apex, then we are looking for a rake or step_flashing
-#     # If class i and class j are both eave_end_point, then we are looking for a eave
-#     # If class i is flashing_end_point and class j is flashing_end_point, then we are looking for flashing
+#     # If class i is apex and class j is eave, then we are looking for a rake or valley
+#     # If class i is eave and class j is apex, then we are looking for a rake or valley
+#     # If class i and class j are both eave, then we are looking for a eave
 #     # If class i is flashing_end_point and class j is apex, then we are looking for rake
 #     # If class i is flashing_end_point and class j is eave, then we are looking for rake
 #     # Not dealing with other cases for now
@@ -456,39 +339,21 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 #     rake_color = np.array(gestalt_color_mapping['rake'])
 #     eave_color = np.array(gestalt_color_mapping['eave'])
 #     valley_color = np.array(gestalt_color_mapping['valley'])
-#     flashing_color = np.array(gestalt_color_mapping['flashing'])
-#     step_flashing_color = np.array(gestalt_color_mapping['step_flashing'])
 #     mask = None
 #     # get a window around the point
 #     window = gest_seg_np[int(pt[1])-2:int(pt[1])+patch_size//2, int(pt[0])-2:int(pt[0])+patch_size//2]
 #     if class_i == 'apex' and class_j == 'apex':
 #         mask = cv2.inRange(window, ridge_color-thresh/2, ridge_color+thresh/2)
-    
+#     elif class_i == 'apex' and class_j == 'eave_end_point':
+#         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+#     elif class_i == 'eave_end_point' and class_j == 'apex':
+#         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
 #     elif class_i == 'eave_end_point' and class_j == 'eave_end_point':
 #         mask = cv2.inRange(window, eave_color-thresh/2, eave_color+thresh/2)
-
-#     elif class_i == 'flashing_end_point' and class_j == 'flashing_end_point':
-#         mask = cv2.inRange(window, flashing_color-thresh/2, flashing_color+thresh/2)
-
-#     elif class_i == 'apex' and class_j == 'eave_end_point':
-#         mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-#         mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
-#         mask = mask1 if np.sum(mask1) > np.sum(mask2) else mask2
-#     elif class_i == 'eave_end_point' and class_j == 'apex':
-#         mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-#         mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
-#         mask = mask1 if np.sum(mask1) > np.sum(mask2) else mask2
-    
 #     elif class_i == 'flashing_end_point' and class_j == 'apex':
 #         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-#     elif class_i == 'apex' and class_j == 'flashing_end_point':
-#         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    
 #     elif class_i == 'flashing_end_point' and class_j == 'eave_end_point':
 #         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-#     elif class_i == 'eave_end_point' and class_j == 'flashing_end_point':
-#         mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
-    
     
 #     if (mask is not None) and (np.sum(mask) > 1):
 #         return True
@@ -498,7 +363,6 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 # def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmented_images, Ks, Rs, ts, debug_visualize = False, house_number = "house"):
 #     # For each edge, find the supporting points
 #     edges = []
-#     vertex_edge_count = {i:0 for i in range(len(points_3d_coords))}
 #     for i in range(len(points_3d_coords)):
 #         for j in range(i+1, len(points_3d_coords)):
             
@@ -519,8 +383,6 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 #                 proj_j = np.dot(K, (np.dot(R, points_3d_coords[j]) + t))
 #                 proj_j = (proj_j/proj_j[2]).astype(np.int32)
 #                 proj_j = proj_j[:2]
-
-
 #                 # Check that both the projections are in the region of the class they belong to
 #                 class_i = points_3d_classes[i]
 #                 class_j = points_3d_classes[j]
@@ -531,49 +393,21 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 #                 if proj_j[0] < 0 or proj_j[0] >= gest_seg_np.shape[1] or proj_j[1] < 0 or proj_j[1] >= gest_seg_np.shape[0]:
 #                     continue
 
-#                 # Get the 5x5 region around the projections, apply the mask of the class color +- threshold and check the sum of the mask
+#                 # Get the 3x3 region around the projections, apply the mask of the class color +- threshold and check the sum of the mask
 #                 # If the sum is greater than 5, then the point is in the region of the class
-#                 check_projection_filter_size = 7
-#                 try:
-#                     color_i = np.array(gestalt_color_mapping[class_i])
-                    
-#                     min_y_i = max(int(proj_i[1]) - check_projection_filter_size//2,0)
-#                     max_y_i = min(int(proj_i[1])+ check_projection_filter_size//2, gest_seg_np.shape[0])
+#                 color_i = np.array(gestalt_color_mapping[class_i])
+#                 window_i = gest_seg_np[int(proj_i[1])-1:int(proj_i[1])+2, int(proj_i[0])-1:int(proj_i[0])+2]
+#                 mask_i = cv2.inRange(window_i, color_i-5, color_i+5)
 
-#                     min_x_i = max(int(proj_i[0]) - check_projection_filter_size//2, 0)
-#                     max_x_i = min(int(proj_i[0]) + check_projection_filter_size//2, gest_seg_np.shape[1])
+#                 color_j = np.array(gestalt_color_mapping[class_j])
+#                 window_j = gest_seg_np[int(proj_j[1])-1:int(proj_j[1])+2, int(proj_j[0])-1:int(proj_j[0])+2]
+#                 mask_j = cv2.inRange(window_j, color_j-5, color_j+5)
 
-#                     window_i = gest_seg_np[min_y_i:max_y_i, min_x_i:max_x_i]
-#                     mask_i = cv2.inRange(window_i, color_i-5, color_i+5)
-
-#                     color_j = np.array(gestalt_color_mapping[class_j])
-#                     min_y_j = max(int(proj_j[1]) - check_projection_filter_size//2,0)
-#                     max_y_j = min(int(proj_j[1]) + check_projection_filter_size//2, gest_seg_np.shape[0])
-
-#                     min_x_j = max(int(proj_j[0]) - check_projection_filter_size//2, 0)
-#                     max_x_j = min(int(proj_j[0]) + check_projection_filter_size//2, gest_seg_np.shape[1])
-
-#                     window_j = gest_seg_np[min_y_j:max_y_j, min_x_j:max_x_j]
-#                     mask_j = cv2.inRange(window_j, color_j-5, color_j+5)
-#                 except:
-#                     ipdb.set_trace()
-
-#                 # Why this condition? Seems like a bug. Should be if np.sum(mask_i) < 5 and np.sum(mask_j) < 5?
-#                 if (np.sum(mask_i)) < 1 or (np.sum(mask_j) < 1):
-#                     # print(f"First point mask sum : {np.sum(mask_i)}, Second point mask sum: {np.sum(mask_j)}")
+#                 if np.sum(mask_i) > 5 and np.sum(mask_j) < 5:
 #                     continue
 
 #                 line = np.linspace(proj_i, proj_j, 12)
 #                 if np.linalg.norm(line[0] - line[-1]) < 50:
-#                     # if debug_visualize:
-#                     #     title = f"Too short line, class i: {class_i}, class j: {class_j}"
-#                     #     # plot the projected points and the line connecting them on top of the segmented image
-#                     #     plt.imshow(gest_seg_np)
-#                     #     plt.imshow(mask_i, alpha=0.4)
-#                     #     plt.imshow(mask_j, alpha=0.4)
-#                     #     plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
-#                     #     plt.title(title)
-#                     #     plt.show()
 #                     continue
 
 #                 observed_ims += 1
@@ -588,26 +422,14 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 #                 # plt.show()
 
 #                 support_pts = 0
-#                 # The segmentation can be occluded by other things and that would need to be accounted for
 #                 for pt in line[1:-1]:
 #                     if appropriate_line_close(pt, gest_seg_np, class_i,class_j, patch_size = 5):
 #                         support_pts += 1
 #                 # print("Support pts: ", support_pts)
-#                 if support_pts >= 4:
+#                 if support_pts >= 5:
 #                     support_ims += 1
 
-
-#                 if debug_visualize:
-#                     title = f"Support points: {support_pts}, decision: {support_pts >= 5}, class i: {class_i}, class j: {class_j}"
-#                     # plot the projected points and the line connecting them on top of the segmented image
-#                     fig = plt.figure(figsize=(12,12))
-#                     plt.imshow(gest_seg_np)
-#                     plt.scatter(proj_i[0], proj_i[1], c='black', s=25, marker='x')
-#                     plt.scatter(proj_j[0], proj_j[1], c='black', s=25, marker='x')
-#                     plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
-#                     plt.title(title)
-#                     plt.savefig(f"data/visuals/debug_edges/house_{house_number}_line_{i}_{j}_image_{k}.png")
-#                     plt.close()
+                
 
 #             # print("Support ims: ", support_ims)
 #             # print("Observed ims: ", observed_ims)
@@ -616,8 +438,343 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
 #                 continue
             
 #             if support_ims/observed_ims > 0.5:
-#                 edges.append([i,j])
-#                 vertex_edge_count[i] += 1
-#                 vertex_edge_count[j] += 1
+#                 edges.append([i,j])    
     
-#     return edges, vertex_edge_count
+#     return edges, None
+
+
+def appropriate_line_close(pt, gest_seg_np, class_i, class_j, patch_size = 10, thresh = 10):
+    # If class i and class j are both apex, then we are looking for a ridge
+    # If class i is apex and class j is eave_end_point, then we are looking for a rake or step_flashing
+    # If class i is eave_endpoint and class j is apex, then we are looking for a rake or step_flashing
+    # If class i and class j are both eave_end_point, then we are looking for a eave
+    # If class i is flashing_end_point and class j is flashing_end_point, then we are looking for flashing
+    # If class i is flashing_end_point and class j is apex, then we are looking for rake
+    # If class i is flashing_end_point and class j is eave, then we are looking for rake
+    # Not dealing with other cases for now
+    ridge_color = np.array(gestalt_color_mapping['ridge'])
+    rake_color = np.array(gestalt_color_mapping['rake'])
+    eave_color = np.array(gestalt_color_mapping['eave'])
+    valley_color = np.array(gestalt_color_mapping['valley'])
+    flashing_color = np.array(gestalt_color_mapping['flashing'])
+    step_flashing_color = np.array(gestalt_color_mapping['step_flashing'])
+    mask = None
+    # get a window around the point
+    window = gest_seg_np[int(pt[1])-patch_size//2:int(pt[1])+patch_size//2, int(pt[0])-patch_size//2:int(pt[0])+patch_size//2]
+    if class_i == 'apex' and class_j == 'apex':
+        mask = cv2.inRange(window, ridge_color-thresh/2, ridge_color+thresh/2)
+    
+    elif class_i == 'eave_end_point' and class_j == 'eave_end_point':
+        mask = cv2.inRange(window, eave_color-thresh/2, eave_color+thresh/2)
+
+    elif class_i == 'flashing_end_point' and class_j == 'flashing_end_point':
+        mask = cv2.inRange(window, flashing_color-thresh/2, flashing_color+thresh/2)
+
+    elif class_i == 'apex' and class_j == 'eave_end_point':
+        mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+        mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
+        mask = mask1 if np.sum(mask1) > np.sum(mask2) else mask2
+    elif class_i == 'eave_end_point' and class_j == 'apex':
+        mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+        mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
+        mask = mask1 if np.sum(mask1) > np.sum(mask2) else mask2
+    
+    elif class_i == 'flashing_end_point' and class_j == 'apex':
+        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+    elif class_i == 'apex' and class_j == 'flashing_end_point':
+        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+    
+    elif class_i == 'flashing_end_point' and class_j == 'eave_end_point':
+        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+    elif class_i == 'eave_end_point' and class_j == 'flashing_end_point':
+        mask = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
+    
+    
+    if (mask is not None) and (np.sum(mask) > 1):
+        return True
+    
+    return False
+
+def visualize_edge(pt1, pt2, gt_points, gt_edges, horizontal_components, vertical_component):
+
+    o3d_line_direction = o3d.geometry.LineSet()
+    o3d_line_direction.points = o3d.utility.Vector3dVector([pt1, pt2])
+    o3d_line_direction.lines = o3d.utility.Vector2iVector([[0,1]])
+    o3d_line_direction.colors = o3d.utility.Vector3dVector([[0.5,0,0.5],[0.5,0,0.5]])
+
+    o3d_gt_wireframe = o3d.geometry.LineSet()
+    o3d_gt_wireframe.points = o3d.utility.Vector3dVector(gt_points)
+    o3d_gt_wireframe.lines = o3d.utility.Vector2iVector(gt_edges)
+
+    o3d_horizontal_components = o3d.geometry.LineSet()
+    o3d_horizontal_components.points = o3d.utility.Vector3dVector([pt1, pt1 + 200 * horizontal_components[0], pt1 + 200 * horizontal_components[1], pt1 + 200 * vertical_component[0]])
+    o3d_horizontal_components.lines = o3d.utility.Vector2iVector([[0,1],[0,2],[0,3]])
+    o3d_horizontal_components.colors = o3d.utility.Vector3dVector([[1,0,0],[0,1,0],[0,0,1]])
+
+    o3d.visualization.draw_geometries([o3d_line_direction, o3d_gt_wireframe, o3d_horizontal_components])
+
+
+
+def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmented_images, Ks, Rs, ts, horizontal_components = None, vertical_component = None,
+                           gt_wireframe = None, debug_visualize = True, house_number = "house"):
+    # For each edge, find the supporting points
+    edges = []
+    vertex_edge_count = {i:0 for i in range(len(points_3d_coords))}
+    for i in range(len(points_3d_coords)):
+        for j in range(i+1, len(points_3d_coords)):
+            
+            support_ims = 0
+            observed_ims = 0
+
+            class_i = points_3d_classes[i]
+            class_j = points_3d_classes[j]
+            
+            line_3d = points_3d_coords[j] - points_3d_coords[i]
+            line_3d_direction = line_3d/np.linalg.norm(line_3d)
+            
+            if horizontal_components is not None and vertical_component is not None:
+                if class_i == "eave_end_point" and class_j == "eave_end_point":
+                    # Should be along either of the major components pther than the vertical (with y componeent big)
+                    # print(np.abs(horizontal_components.dot(line_3d_direction)))
+
+                    # ipdb.set_trace()
+
+                    # visulaize the line  and the gt wireframe
+                    # o3d_line_direction = o3d.geometry.LineSet()
+                    # o3d_line_direction.points = o3d.utility.Vector3dVector([points_3d_coords[i], points_3d_coords[j]])
+                    # o3d_line_direction.lines = o3d.utility.Vector2iVector([[0,1]])
+                    # o3d_line_direction.colors = o3d.utility.Vector3dVector([[1,0,0],[1,0,0]])
+
+                    # o3d_gt_wireframe = o3d.geometry.LineSet()
+                    # o3d_gt_wireframe.points = o3d.utility.Vector3dVector(gt_wireframe[0])
+                    # o3d_gt_wireframe.lines = o3d.utility.Vector2iVector(gt_wireframe[1])
+
+                    # o3d_horizontal_components = o3d.geometry.LineSet()
+                    # o3d_horizontal_components.points = o3d.utility.Vector3dVector([points_3d_coords[i], points_3d_coords[i] + 200 * horizontal_components[0], points_3d_coords[i] + 200 * horizontal_components[1]])
+                    # o3d_horizontal_components.lines = o3d.utility.Vector2iVector([[0,1],[0,2]])
+                    # o3d_horizontal_components.colors = o3d.utility.Vector3dVector([[0,1,0],[0,0,1]])
+
+                    # o3d.visualization.draw_geometries([o3d_line_direction, o3d_gt_wireframe, o3d_horizontal_components])
+
+                    # ipdb.set_trace()
+                    if np.abs(vertical_component.dot(line_3d_direction)) > 0.15:
+                        continue
+                    if np.min(np.abs(horizontal_components.dot(line_3d_direction))) > 0.15:
+                        continue
+                elif class_i == "apex" and class_j == "apex":
+                    vertical_alignment = np.abs(vertical_component.dot(line_3d_direction))
+                    if vertical_alignment > 0.1:
+                        print("Rejecting edge due to vertical alignment")
+                        print(vertical_alignment)
+                        # visualize_edge(points_3d_coords[i], points_3d_coords[j], gt_wireframe[0], gt_wireframe[1], horizontal_components, vertical_component)
+                        continue
+
+                    min_horizontal_alignment = np.min(np.abs(horizontal_components.dot(line_3d_direction)))
+                    if min_horizontal_alignment > 0.1:
+                        print("Rejecting edge due to horizontal alignments")
+                        print(np.abs(horizontal_components.dot(line_3d_direction)))
+                        # print(horizontal_components)
+                        # visualize_edge(points_3d_coords[i], points_3d_coords[j], gt_wireframe[0], gt_wireframe[1], horizontal_components, vertical_component)
+                        continue
+
+                    else:
+                        edges.append([i,j])
+                        vertex_edge_count[i] += 1
+                        vertex_edge_count[j] += 1
+                        continue
+
+
+                elif ("eave_end_point" in [class_i,class_j]) and ("apex" in [class_i,class_j]):
+                    if np.min(np.abs(horizontal_components.dot(line_3d_direction))) > 0.15:
+                        continue
+
+            for k in range(len(gestalt_segmented_images)):
+
+                gest_seg_np = np.array(gestalt_segmented_images[k])
+                K = Ks[k]
+                R = Rs[k]
+                t = ts[k]
+                
+                # Project the 3D points to the image plane
+                proj_i = np.dot(K, (np.dot(R, points_3d_coords[i]) + t))
+                proj_i = (proj_i/proj_i[2]).astype(np.int32)
+                proj_i = proj_i[:2]
+                proj_j = np.dot(K, (np.dot(R, points_3d_coords[j]) + t))
+                proj_j = (proj_j/proj_j[2]).astype(np.int32)
+                proj_j = proj_j[:2]
+
+
+                # Check that both the projections are in the region of the class they belong to
+
+                # First check if the projections are in the image
+                if proj_i[0] < 0 or proj_i[0] >= gest_seg_np.shape[1] or proj_i[1] < 0 or proj_i[1] >= gest_seg_np.shape[0]:
+                    continue
+                if proj_j[0] < 0 or proj_j[0] >= gest_seg_np.shape[1] or proj_j[1] < 0 or proj_j[1] >= gest_seg_np.shape[0]:
+                    continue
+
+                # Get the 5x5 region around the projections, apply the mask of the class color +- threshold and check the sum of the mask
+                # If the sum is greater than 5, then the point is in the region of the class
+                check_projection_filter_size = 3
+                try:
+                    color_i = np.array(gestalt_color_mapping[class_i])
+                    
+                    min_y_i = max(int(proj_i[1]) - check_projection_filter_size//2,0)
+                    max_y_i = min(int(proj_i[1])+ check_projection_filter_size//2, gest_seg_np.shape[0])
+
+                    min_x_i = max(int(proj_i[0]) - check_projection_filter_size//2, 0)
+                    max_x_i = min(int(proj_i[0]) + check_projection_filter_size//2, gest_seg_np.shape[1])
+
+                    window_i = gest_seg_np[min_y_i:max_y_i, min_x_i:max_x_i]
+                    mask_i = cv2.inRange(window_i, color_i-5, color_i+5)
+
+                    color_j = np.array(gestalt_color_mapping[class_j])
+                    min_y_j = max(int(proj_j[1]) - check_projection_filter_size//2,0)
+                    max_y_j = min(int(proj_j[1]) + check_projection_filter_size//2, gest_seg_np.shape[0])
+
+                    min_x_j = max(int(proj_j[0]) - check_projection_filter_size//2, 0)
+                    max_x_j = min(int(proj_j[0]) + check_projection_filter_size//2, gest_seg_np.shape[1])
+
+                    window_j = gest_seg_np[min_y_j:max_y_j, min_x_j:max_x_j]
+                    mask_j = cv2.inRange(window_j, color_j-5, color_j+5)
+                except:
+                    ipdb.set_trace()
+
+                # Why this condition? Seems like a bug. Should be if np.sum(mask_i) < 5 and np.sum(mask_j) < 5?
+                if (np.sum(mask_i)) < 1 or (np.sum(mask_j) < 1):
+                    # print(f"First point mask sum : {np.sum(mask_i)}, Second point mask sum: {np.sum(mask_j)}")
+                    continue
+
+                line = np.linspace(proj_i, proj_j, 12)
+                if np.linalg.norm(line[0] - line[-1]) < 50:
+                    # if debug_visualize:
+                    #     title = f"Too short line, class i: {class_i}, class j: {class_j}"
+                    #     # plot the projected points and the line connecting them on top of the segmented image
+                    #     plt.imshow(gest_seg_np)
+                    #     plt.imshow(mask_i, alpha=0.4)
+                    #     plt.imshow(mask_j, alpha=0.4)
+                    #     plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
+                    #     plt.title(title)
+                    #     plt.show()
+                    continue
+
+                observed_ims += 1
+
+                # ipdb.set_trace()
+                # plot the line and the projected points on top of the segmented image and show
+
+                # plt.imshow(gest_seg_np)
+                # plt.scatter(proj_i[0], proj_i[1], c='red', s=50)
+                # plt.scatter(proj_j[0], proj_j[1], c='red', s=50)
+                # plt.plot(line[:,0], line[:,1], c='black', lw=2)
+                # plt.show()
+
+                support_pts = 0
+                # The segmentation can be occluded by other things and that would need to be accounted for
+                for pt in line[1:-1]:
+                    if appropriate_line_close(pt, gest_seg_np, class_i,class_j, patch_size = 5):
+                        support_pts += 1
+                # print("Support pts: ", support_pts)
+                if support_pts >= 6:
+                    support_ims += 1
+
+
+                if debug_visualize  and (class_i == "apex" and class_j == "apex"):
+                    title = f"Support points: {support_pts}, decision: {support_pts >= 5}, class i: {class_i}, class j: {class_j}"
+                    # plot the projected points and the line connecting them on top of the segmented image
+                    fig = plt.figure(figsize=(12,12))
+                    plt.imshow(gest_seg_np)
+                    plt.scatter(proj_i[0], proj_i[1], c='black', s=25, marker='x')
+                    plt.scatter(proj_j[0], proj_j[1], c='black', s=25, marker='x')
+                    plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
+                    plt.title(title)
+                    plt.show()
+                    # plt.savefig(f"data/visuals_new/debug_edges/house_{house_number}_line_{i}_{j}_image_{k}.png")
+                    # plt.close()
+
+            # print("Support ims: ", support_ims)
+            # print("Observed ims: ", observed_ims)
+
+            if observed_ims == 0:
+                continue
+            
+            if support_ims/observed_ims > 0.5:
+                edges.append([i,j])
+                vertex_edge_count[i] += 1
+                vertex_edge_count[j] += 1
+    
+    return edges, vertex_edge_count
+
+
+def compute_min_dists_to_gt(perdicted_points, gt_points):
+
+    if not isinstance(perdicted_points, np.ndarray):
+        perdicted_points = np.array(perdicted_points)
+    
+    if not isinstance(gt_points, np.ndarray):
+        gt_points = np.array(gt_points)
+
+    pwise_dists = np.linalg.norm(perdicted_points[:,None] - gt_points[None], axis = -1)
+    min_dists_pred_to_gt = np.min(pwise_dists, axis = 1)
+    min_dists_gt_to_pred = np.min(pwise_dists, axis = 0)
+
+    return min_dists_pred_to_gt, min_dists_gt_to_pred
+
+
+def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, max_z = 2000):
+
+    # ipdb.set_trace()
+    # Get the positions we need to look in the depth images
+    uv = np.hstack((positions, np.ones((positions.shape[0], 1)))).astype(np.int32)
+
+    # Sample the depths at these points
+    depths =  monocular_depth[uv[:,1], uv[:,0]]
+
+    # Get the 3D points
+    Kinv = np.linalg.inv(K)
+    
+    xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
+    mask = (xyz[:,2] < max_z).T
+
+    xyz = np.dot(R.T, xyz.T - t.reshape(3,1))
+
+    return xyz.T, mask
+
+def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t):
+
+    projected_depth = np.zeros_like(monocular_depth)
+    projection_matrix = np.dot(K, np.hstack((R, t.reshape(3,1))))
+    sfm_points_h = np.hstack((sfm_points, np.ones((sfm_points.shape[0], 1))))
+    projected_pts = np.rint(np.dot(projection_matrix, sfm_points_h.T).T)
+    
+    projected_pts[:,:2] /= projected_pts[:,2].reshape(-1,1)
+
+    x = projected_pts[:,0].astype(np.int32)
+    y = projected_pts[:,1].astype(np.int32)
+    z = projected_pts[:,2]
+
+    # print(z.min(), z.max())
+    # use only the 25 percent closest points
+    max_z = np.percentile(z, 30)
+    mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z)
+
+    x = x[mask]
+    y = y[mask]
+    z = z[mask]
+
+    # sort by z values so that the 
+    idx = np.argsort(z)
+    idx = idx[np.unique(np.ravel_multi_index((y,x), (monocular_depth.shape[0],monocular_depth.shape[1])),return_index=True)[1]]
+    
+    x = x[idx]
+    y = y[idx]
+
+    projected_depth[y,x] = z[idx]
+
+    # Get the median value of the scale factor that aligns the monocular depth to the projected depth
+    mask = projected_depth > 0
+    scale = np.median(monocular_depth[mask]/projected_depth[mask])
+    scale = 1/scale
+
+    return scale, max_z
+
+    

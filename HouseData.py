@@ -213,13 +213,13 @@ class HouseData():
         # o3d.visualization.draw_geometries([merged_pts_o3d, gt_house_wf])
         
         if merge_neighbors_final:
-            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 20, remove = False, append = False)
+            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 100, remove = False, append = False)
         
         self.pred_wf_vertices = merged_pts
         self.pred_wf_vertices_classes = merged_pts_classes
     
     
-    def get_edges(self, method = 'handcrafted', visualize = False):
+    def get_edges(self, method = 'handcrafted', visualize = True):
         if method == 'handcrafted':
             self.pred_wf_edges, _ = get_edges_with_support(self.pred_wf_vertices, self.pred_wf_vertices_classes, 
                                                         self.gestalt_images,
@@ -239,6 +239,8 @@ class HouseData():
                 o3d_pred_wf = o3d.geometry.LineSet()
                 o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
                 o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
+                if len(self.pred_wf_edges) > 0:
+                    o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0]]*len(self.pred_wf_edges))/255.0)
 
                 o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
 

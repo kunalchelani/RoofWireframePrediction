@@ -2,7 +2,7 @@ import open3d as o3d
 import numpy as np
 from hoho.color_mappings import gestalt_color_mapping
 
-def get_triangulated_pts_o3d_pc(triangulated_corners, triangulated_corner_classes, gestalt_color_mapping):
+def get_triangulated_pts_o3d_pc(triangulated_corners, triangulated_corner_classes):
     triangulated_pts_o3d = o3d.geometry.PointCloud()
     triangulated_pts_o3d.points = o3d.utility.Vector3dVector(triangulated_corners)
     colors = np.zeros_like(triangulated_corners)
