@@ -1,6 +1,7 @@
 import open3d as o3d
 import numpy as np
 from hoho.color_mappings import gestalt_color_mapping
+import ipdb
 
 def get_triangulated_pts_o3d_pc(triangulated_corners, triangulated_corner_classes):
     triangulated_pts_o3d = o3d.geometry.PointCloud()
@@ -74,3 +75,37 @@ def update_visualization_add_triangulated_point(vis, new_point, new_color):
     vis.update_renderer()
 
     return False
+
+
+def visualize_3d_line_debug(sfm_points, gt_wf_vertices, gt_wf_edges, pred_wf_vertices, pred_wf_vertices_classes, points_scrutiny, horizontal_directions):
+
+    # lines_scrutiny contains N points - the first point is connected to all the remaining points 
+    line_3d = o3d.geometry.LineSet()
+    line_3d.points = o3d.utility.Vector3dVector(points_scrutiny)
+    edges = np.array([[0,i] for i in range(1, points_scrutiny.shape[0])])
+    line_3d.lines = o3d.utility.Vector2iVector(edges)
+    colors = np.array([[0,0,1]]*len(edges))
+    line_3d.colors = o3d.utility.Vector3dVector(colors)
+
+    o3d_major_directions = o3d.geometry.LineSet()
+    origin = np.array([0, 0, 0])
+    end_points = origin + 1000*np.array([horizontal_directions[0], horizontal_directions[1], [0, 0, 1]])
+    all_points = np.vstack([origin, end_points])
+    o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
+    o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [ 0, 2], [0, 3]])
+    # color the major directions r g b
+    o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
+
+    o3d_gt_wf = o3d.geometry.LineSet()
+    o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(gt_wf_vertices))
+    o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(gt_wf_edges))
+
+
+    o3d_sfm_points = o3d.geometry.PointCloud()
+    o3d_sfm_points.points = o3d.utility.Vector3dVector(sfm_points)
+    o3d_sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+    o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
+
+    o3d.visualization.draw_geometries([o3d_sfm_points, o3d_gt_wf, o3d_major_directions, o3d_pred_points, line_3d])
+

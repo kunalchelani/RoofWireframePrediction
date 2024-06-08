@@ -3,12 +3,13 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import hoho
 from pathlib import Path
-from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support
+from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d
 from utils_new import triangulate_from_viewpoints
-from o3d_utils import get_triangulated_pts_o3d_pc
+from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug
 import ipdb
 from utils import process_points
 from hoho import compute_WED
+from skimage.measure import LineModelND, ransac
 
 class HouseData():
 
@@ -221,11 +222,11 @@ class HouseData():
         self.pred_wf_vertices_classes = merged_pts_classes
     
     
-    def get_edges(self, method = 'handcrafted', visualize = True):
-        if method == 'no_edges':
+    def get_edges(self, method = "handcrafted", visualize = False):
+        if method == "no_edges":
             self.pred_wf_edges = []
         
-        elif method == 'handcrafted':
+        elif method == "handcrafted":
             self.pred_wf_edges, _ = get_edges_with_support(self.pred_wf_vertices, self.pred_wf_vertices_classes, 
                                                         self.gestalt_images,
                                                         self.Ks, self.Rs, self.ts,
@@ -241,33 +242,144 @@ class HouseData():
             print("Num vertices in predicted wireframe: ", len(self.pred_wf_vertices))
             print("Num edges in predicted wireframe: ", len(self.pred_wf_edges))
             
-        if visualize:
-            o3d_gt_wf = o3d.geometry.LineSet()
-            o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
-            o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+            if visualize:
+                o3d_gt_wf = o3d.geometry.LineSet()
+                o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+                o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
 
+                # o3d_pred_wf = o3d.geometry.LineSet()
+                # o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
+                # o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
+                # if len(self.pred_wf_edges) > 0:
+                #     o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0]]*len(self.pred_wf_edges))/255.0)
+
+                o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
+
+                o3d_major_directions = o3d.geometry.LineSet()
+                origin = np.array([0, 0, 0])
+                end_points = origin + 1000*np.array([[0,0,1], [0,1,0], [1,0,0]])
+                all_points = np.vstack([origin, end_points])
+                o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
+                o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [0, 2], [0, 3]])
+                # color the major directions r g b
+                o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
+
+                sfm_points = o3d.geometry.PointCloud()
+                sfm_points.points = o3d.utility.Vector3dVector(self.sfm_points)
+                sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+                o3d.visualization.draw_geometries([o3d_gt_wf, o3d_pred_points, o3d_major_directions, sfm_points, o3d_major_directions])
+
+        
+        elif method == 'new_hc':
+            
+            self.pred_wf_edges = []
+            # First lets only connect the eave end points to other eave end points
+
+            vertices = np.array(self.pred_wf_vertices)
+            vertex_classes = np.array(self.pred_wf_vertices_classes)
+            eave_end_points_inds = np.where(vertex_classes == 'eave_end_point')[0]
+
+            for i, ind1 in enumerate(eave_end_points_inds):
+                if self.pred_verts_num_close_sfm_pts[ind1] < 5:
+                    continue
+                for j, ind2 in enumerate(eave_end_points_inds):
+                    if self.pred_verts_num_close_sfm_pts[ind2] < 5:
+                        continue
+                    if i < j:
+                        
+                        # print(self.pred_verts_num_close_sfm_pts[ind1])
+                        # print(self.pred_verts_num_close_sfm_pts[ind2])
+
+                        line_3d = vertices[ind1] - vertices[ind2]
+                        line_dir_3d = line_3d/np.linalg.norm(line_3d)
+
+                        if np.abs(line_dir_3d[2]) > 0.1:
+                            continue
+                        
+                        hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
+                        if np.max(hor_align) < 0.98:
+                            continue
+
+                        if np.max(np.abs(line_dir_3d)) < 0.1:
+                            continue
+                        
+                        # Check the alignment with the vertical component
+                        # print(f"Line direction: {line_dir_3d}")
+                        
+                        # ipdb.set_trace()
+                        # visualize_3d_line_debug(self.sfm_points, self.gt_wf_vertices, self.gt_wf_edges, 
+                        #                         self.pred_wf_vertices, self.pred_wf_vertices_classes, 
+                        #                         np.array([vertices[ind1], vertices[ind2]]), self.horizontal_components)
+                        
+                        decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
+                                                    vertices[ind1], vertices[ind2], vertex_classes[ind1], vertex_classes[ind2],
+                                                    debug_visualize = False, house_number = f"{self.house_key}_{ind1}_{ind2}")
+
+                        if decision_2d:
+                            # print("Edge accepted")
+                            self.pred_wf_edges += [(ind1, ind2)]
+                            # print("Edge rejected")
+
+            # Each eave can only be connected to one other eave_end_point
+            # if there are multiple connections, only keep the one with the minimum distance
+
+            for i, ind1 in enumerate(eave_end_points_inds):
+                # check the number of connections
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if edge[0] == ind1]
+                # visualize all connections, stack the point with all connected points
+
+                if len(connected_inds) > 1:
+                    # keep the one with the minimum distance
+
+                    connected_points = [vertices[ind1]] + [vertices[ind2] for ind2 in connected_inds]
+                    connected_points = np.vstack(connected_points)
+                    # visualize_3d_line_debug(self.sfm_points, self.gt_wf_vertices, self.gt_wf_edges, 
+                    #                             self.pred_wf_vertices, self.pred_wf_vertices_classes, 
+                    #                             connected_points, self.horizontal_components)
+                    
+                    # keep at most one line along each of the horizontal directions
+                    line_dirs_3d = np.array([vertices[ind2] - vertices[ind1] for ind2 in connected_inds])
+                    line_dirs_3d = line_dirs_3d/np.linalg.norm(line_dirs_3d, axis = 1, keepdims=True)
+                    dir1_inds = np.where(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d.T)) > 0.98)[0]
+                    dir2_inds = np.where(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d.T)) > 0.98)[0]
+                    
+                    if len(dir1_inds) > 1:
+                        # dists_dir1 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir1_inds]
+                        max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d[dir1_inds].T)))
+                        # min_ind = np.argmin(dists_dir1)
+                        keep = connected_inds[dir1_inds[max_alignment_ind]]
+                        # ipdb.set_trace()
+                        for ind2 in dir1_inds:
+                            if keep != connected_inds[ind2]:
+                                self.pred_wf_edges.remove((ind1, connected_inds[ind2])  if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
+                    
+                    if len(dir2_inds) > 1:
+                        # dists_dir2 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir2_inds]
+                        # min_ind = np.argmin(dists_dir2)
+                        max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d[dir2_inds].T)))
+                        # min_ind = np.argmin(dists_dir1)
+                        keep = connected_inds[dir2_inds[max_alignment_ind]]
+                        # keep = connected_inds[dir2_inds[min_ind]]
+                        # ipdb.set_trace()
+                        for ind2 in dir2_inds:
+                            if keep != connected_inds[ind2]:
+                                self.pred_wf_edges.remove((ind1, connected_inds[ind2]) if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
+                    
+
+            # o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
             # o3d_pred_wf = o3d.geometry.LineSet()
             # o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
             # o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
             # if len(self.pred_wf_edges) > 0:
-            #     o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0]]*len(self.pred_wf_edges))/255.0)
+            #     o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(self.pred_wf_edges)))
 
-            o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
+            # o3d_gt_wf = o3d.geometry.LineSet()
+            # o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+            # o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
 
-            o3d_major_directions = o3d.geometry.LineSet()
-            origin = np.array([0, 0, 0])
-            end_points = origin + 1000*np.array([[0,0,1], [0,1,0], [1,0,0]])
-            all_points = np.vstack([origin, end_points])
-            o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
-            o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [0, 2], [0, 3]])
-            # color the major directions r g b
-            o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
-
-            sfm_points = o3d.geometry.PointCloud()
-            sfm_points.points = o3d.utility.Vector3dVector(self.sfm_points)
-            sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
-
-            o3d.visualization.draw_geometries([o3d_gt_wf, o3d_pred_points, o3d_major_directions, sfm_points, o3d_major_directions])
+            # o3d.visualization.draw_geometries([o3d_pred_wf, o3d_pred_points, o3d_gt_wf])
+            
 
         else:
             raise NotImplementedError
@@ -291,3 +403,67 @@ class HouseData():
             self.vertical_component = None
         # ipdb.set_trace()
 
+
+    def get_lines_from_sfm_points(self, visualize = True):
+
+        # project all points onto the ground plane
+        points_horizontal = self.sfm_points[:, :2]
+        num_points = 10000
+        if points_horizontal.shape[0] > num_points:
+            points_horizontal = points_horizontal[np.random.choice(points_horizontal.shape[0], num_points, replace = False)]
+        # detect lines in the horizontal plane using RANSAC until we have 2 lines which are almost orthogonal
+
+        # ipdb.set_trace()
+
+        # fit a line to the points
+        model = LineModelND()
+        model.estimate(points_horizontal)
+
+        model_robust, inliers = ransac(points_horizontal, LineModelND, min_samples=2, residual_threshold=10, max_trials=1000)
+        #visualize the inliers using open3d
+        line1_dir_2d = model_robust.params[1]
+        line1_dir_3d = np.array([model_robust.params[1][0], model_robust.params[1][1], 0])
+        line1_dir_3d = line1_dir_3d/np.linalg.norm(line1_dir_3d)
+
+        # The second line should be orthogonal to the first line and have z component 0
+        line2_dir_2d = np.array([-line1_dir_2d[1], line1_dir_2d[0]])
+        line2_dir_3d = np.array([line2_dir_2d[0], line2_dir_2d[1], 0])
+        line2_dir_3d = line2_dir_3d/np.linalg.norm(line2_dir_3d)
+
+        self.horizontal_components = np.array([line1_dir_3d, line2_dir_3d])
+
+        # if visualize:
+        # o3d_major_directions = o3d.geometry.LineSet()
+        # origin = np.array([0, 0, 0])
+        # end_points = origin + 1000*np.array([line1_dir_3d, line2_dir_3d, [0, 0, 1]])
+        # all_points = np.vstack([origin, end_points])
+        # o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
+        # o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [0, 2], [0, 3]])
+        # # color the major directions r g b
+        # o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
+
+        # o3d_gt_wf = o3d.geometry.LineSet()
+        # o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+        # o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+
+
+        # inlier_points = points_horizontal[inliers]
+        # o3d_inliers = o3d.geometry.PointCloud()
+        # o3d_inliers.points = o3d.utility.Vector3dVector(np.hstack([inlier_points, np.zeros((inlier_points.shape[0], 1))]))
+        # o3d_inliers.paint_uniform_color([0, 0, 1])
+
+        # sfm_points = o3d.geometry.PointCloud()
+        # sfm_points.points = o3d.utility.Vector3dVector(self.sfm_points)
+        # sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+        # o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
+
+        # o3d.visualization.draw_geometries([sfm_points, o3d_gt_wf, o3d_major_directions, o3d_inliers, o3d_pred_points])
+
+    def get_num_sfm_points_within(self, threshold = 100):
+        
+        points_query = self.pred_wf_vertices
+        sfm_points = self.sfm_points
+
+        all_dists = np.linalg.norm(sfm_points[:, None] - points_query, axis = -1)
+        self.pred_verts_num_close_sfm_pts = np.sum(all_dists < threshold, axis = 0).reshape(-1)

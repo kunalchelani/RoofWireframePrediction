@@ -9,7 +9,7 @@ import os
 import time
 import o3d_utils
 import matplotlib
-# matplotlib.use('GTK4Agg')
+matplotlib.use('GTK4Agg')
 
 def get_vertices_from_gestalt(segim, color_threshold = 10):
     """
@@ -744,7 +744,7 @@ def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, m
     # Get the 3D points
     Kinv = np.linalg.inv(K)
     
-    xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
+    xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * (scale)
     mask = (xyz[:,2] < max_z).T
 
     xyz = np.dot(R.T, xyz.T - t.reshape(3,1))
@@ -792,4 +792,109 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t):
 
     return scale, max_z
 
+def check_edge_2d(gestalt_segmented_images, Ks, Rs, ts, pt1, pt2, cls1, cls2, debug_visualize = False, house_number = "house"):
+    observed_ims = 0
+    support_ims = 0
+    for k in range(len(gestalt_segmented_images)):
+
+        gest_seg_np = np.array(gestalt_segmented_images[k])
+        
+        K = Ks[k]
+        R = Rs[k]
+        t = ts[k]
+        
+        # Project the 3D points to the image plane
+        proj_1 = np.dot(K, (np.dot(R, pt1) + t))
+        proj_1 = (proj_1/proj_1[2]).astype(np.int32)
+        proj_1 = proj_1[:2]
+
+        proj_2 = np.dot(K, (np.dot(R, pt2) + t))
+        proj_2 = (proj_2/proj_2[2]).astype(np.int32)
+        proj_2 = proj_2[:2]
+
+
+        # Check that both the projections are in the region of the class they belong to
+
+        # First check if the projections are in the image
+        if proj_1[0] < 0 or proj_1[0] >= gest_seg_np.shape[1] or proj_1[1] < 0 or proj_1[1] >= gest_seg_np.shape[0]:
+            continue
+        if proj_2[0] < 0 or proj_2[0] >= gest_seg_np.shape[1] or proj_2[1] < 0 or proj_2[1] >= gest_seg_np.shape[0]:
+            continue
+
+        # Get the 5x5 region around the projections, apply the mask of the class color +- threshold and check the sum of the mask
+        # If the sum is greater than 5, then the point is in the region of the class
+        check_projection_filter_size = 3
+        try:
+            color_i = np.array(gestalt_color_mapping[cls1])
+            
+            min_y_1 = max(int(proj_1[1]) - check_projection_filter_size//2,0)
+            max_y_1 = min(int(proj_1[1]) + check_projection_filter_size//2+1, gest_seg_np.shape[0])
+
+            min_x_1 = max(int(proj_1[0]) - check_projection_filter_size//2, 0)
+            max_x_1 = min(int(proj_1[0]) + check_projection_filter_size//2+1, gest_seg_np.shape[1])
+
+            window_1 = gest_seg_np[min_y_1:max_y_1, min_x_1:max_x_1]
+            mask_1 = cv2.inRange(window_1, color_i-5, color_i+5)
+
+            color_2 = np.array(gestalt_color_mapping[cls2])
+            min_y_2 = max(int(proj_2[1]) - check_projection_filter_size//2,0)
+            max_y_2 = min(int(proj_2[1]) + check_projection_filter_size//2+1, gest_seg_np.shape[0])
+
+            min_x_2 = max(int(proj_2[0]) - check_projection_filter_size//2, 0)
+            max_x_2 = min(int(proj_2[0]) + check_projection_filter_size//2+1, gest_seg_np.shape[1])
+
+            window_2 = gest_seg_np[min_y_2:max_y_2, min_x_2:max_x_2]
+            mask_2 = cv2.inRange(window_2, color_2-5, color_2+5)
+            
+        except:
+            ipdb.set_trace()
+
+        # Why this condition? Seems like a bug. Should be if np.sum(mask_i) < 5 and np.sum(mask_j) < 5?
+        if (np.sum(mask_1)) < 1 or (np.sum(mask_2) < 1):
+            # print("One of the points projecting out of the required corner zone")
+            # print(f"First point mask sum : {np.sum(mask_i)}, Second point mask sum: {np.sum(mask_j)}")
+            continue
+
+        line = np.linspace(proj_1, proj_2, 12)
+        if np.linalg.norm(line[0] - line[-1]) < 75:
+            # print("Line too short")
+            # if debug_visualize:
+            #     title = f"Too short line, class i: {class_i}, class j: {class_j}"
+            #     # plot the projected points and the line connecting them on top of the segmented image
+            #     plt.imshow(gest_seg_np)
+            #     plt.imshow(mask_i, alpha=0.4)
+            #     plt.imshow(mask_j, alpha=0.4)
+            #     plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
+            #     plt.title(title)
+            #     plt.show()
+            continue
+
+        observed_ims += 1
+        support_pts = 0
+
+        # The segmentation can be occluded by other things and that would need to be accounted for
+        for pt in line[1:-1]:
+            if appropriate_line_close(pt, gest_seg_np, cls1,cls2, patch_size = 7):
+                support_pts += 1
+        # print("Support pts: ", support_pts)
+        if support_pts > 7:
+            support_ims += 1
+
+
+        if debug_visualize:
+            title = f"Support points: {support_pts}, decision: {support_pts > 7}, class i: {cls1}, class j: {cls2}"
+            # plot the projected points and the line connecting them on top of the segmented image
+            fig = plt.figure(figsize=(12,12))
+            plt.imshow(gest_seg_np)
+            plt.scatter(proj_1[0], proj_1[1], c='black', s=25, marker='x')
+            plt.scatter(proj_2[0], proj_2[1], c='black', s=25, marker='x')
+            plt.plot([proj_1[0], proj_2[0]], [proj_1[1], proj_2[1]], c='black', lw=2)
+            plt.title(title)
+            plt.savefig(f"data/visuals_new/debug_edges/house_{house_number}_image_{k}.png")
+            plt.close()
+
+    if observed_ims == 0:
+        return False
     
+    if support_ims/observed_ims >= 0.5:
+        return True
