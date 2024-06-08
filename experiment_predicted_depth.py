@@ -12,7 +12,8 @@ import argparse
 
 
 def get_iterable_hoho_dataset():
-    data_dir = Path('/local/kunal/lines_localize/challenge/data/data/')
+    # data_dir = Path('/local/kunal/lines_localize/challenge/data/data/')
+    data_dir = Path('./data/data')
     split = 'train'
     hoho.LOCAL_DATADIR = hoho.setup(data_dir)
     dataset = hoho.get_dataset(decode=None, split=split, dataset_type='webdataset')

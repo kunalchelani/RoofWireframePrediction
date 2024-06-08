@@ -9,7 +9,7 @@ import os
 import time
 import o3d_utils
 import matplotlib
-matplotlib.use('GTK4Agg')
+# matplotlib.use('GTK4Agg')
 
 def get_vertices_from_gestalt(segim, color_threshold = 10):
     """
@@ -460,7 +460,7 @@ def appropriate_line_close(pt, gest_seg_np, class_i, class_j, patch_size = 10, t
     step_flashing_color = np.array(gestalt_color_mapping['step_flashing'])
     mask = None
     # get a window around the point
-    window = gest_seg_np[int(pt[1])-patch_size//2:int(pt[1])+patch_size//2, int(pt[0])-patch_size//2:int(pt[0])+patch_size//2]
+    window = gest_seg_np[int(pt[1])-patch_size//2:int(pt[1])+patch_size//2+1, int(pt[0])-patch_size//2:int(pt[0])+patch_size//2+1]
     if class_i == 'apex' and class_j == 'apex':
         mask = cv2.inRange(window, ridge_color-thresh/2, ridge_color+thresh/2)
     
@@ -474,6 +474,7 @@ def appropriate_line_close(pt, gest_seg_np, class_i, class_j, patch_size = 10, t
         mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
         mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
         mask = mask1 if np.sum(mask1) > np.sum(mask2) else mask2
+
     elif class_i == 'eave_end_point' and class_j == 'apex':
         mask1 = cv2.inRange(window, rake_color-thresh/2, rake_color+thresh/2)
         mask2 = cv2.inRange(window, step_flashing_color-thresh/2, step_flashing_color+thresh/2)
@@ -736,7 +737,7 @@ def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, m
             uv = np.hstack((grid, np.ones((grid.shape[0], 1)))).astype(np.int32)
             xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
     
-    uv = np.hstack((positions, np.ones((positions.shape[0], 1)))).astype(np.int32)
+    uv = np.hstack((positions.reshape(-1,2), np.ones((positions.shape[0], 1)))).astype(np.int32)
 
     # Sample the depths at these points
     depths =  monocular_depth[uv[:,1], uv[:,0]]
@@ -856,7 +857,7 @@ def check_edge_2d(gestalt_segmented_images, Ks, Rs, ts, pt1, pt2, cls1, cls2, de
             continue
 
         line = np.linspace(proj_1, proj_2, 12)
-        if np.linalg.norm(line[0] - line[-1]) < 75:
+        if np.linalg.norm(line[0] - line[-1]) < 30:
             # print("Line too short")
             # if debug_visualize:
             #     title = f"Too short line, class i: {class_i}, class j: {class_j}"

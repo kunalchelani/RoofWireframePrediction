@@ -324,48 +324,97 @@ class HouseData():
             # Each eave can only be connected to one other eave_end_point
             # if there are multiple connections, only keep the one with the minimum distance
 
+            keep_ = "none"
             for i, ind1 in enumerate(eave_end_points_inds):
                 # check the number of connections
-                connected_inds = [edge[1] for edge in self.pred_wf_edges if edge[0] == ind1]
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if edge[0] == ind1] + [edge[0] for edge in self.pred_wf_edges if edge[1] == ind1]
                 # visualize all connections, stack the point with all connected points
 
                 if len(connected_inds) > 1:
                     # keep the one with the minimum distance
 
-                    connected_points = [vertices[ind1]] + [vertices[ind2] for ind2 in connected_inds]
-                    connected_points = np.vstack(connected_points)
+                    if keep_ == "most_aligned":
+                        connected_points = [vertices[ind1]] + [vertices[ind2] for ind2 in connected_inds]
+                        connected_points = np.vstack(connected_points)
+                        # visualize_3d_line_debug(self.sfm_points, self.gt_wf_vertices, self.gt_wf_edges, 
+                        #                             self.pred_wf_vertices, self.pred_wf_vertices_classes, 
+                        #                             connected_points, self.horizontal_components)
+                        
+                        # keep at most one line along each of the horizontal directions
+                        line_dirs_3d = np.array([vertices[ind2] - vertices[ind1] for ind2 in connected_inds])
+                        line_dirs_3d = line_dirs_3d/np.linalg.norm(line_dirs_3d, axis = 1, keepdims=True)
+                        dir1_inds = np.where(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d.T)) > 0.98)[0]
+                        dir2_inds = np.where(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d.T)) > 0.98)[0]
+                        
+                        if len(dir1_inds) > 1:
+                            # dists_dir1 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir1_inds]
+                            max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d[dir1_inds].T)))
+                            # min_ind = np.argmin(dists_dir1)
+                            keep = connected_inds[dir1_inds[max_alignment_ind]]
+                            # ipdb.set_trace()
+                            for ind2 in dir1_inds:
+                                if keep != connected_inds[ind2]:
+                                    self.pred_wf_edges.remove((ind1, connected_inds[ind2])  if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
+                        
+                        if len(dir2_inds) > 1:
+                            # dists_dir2 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir2_inds]
+                            # min_ind = np.argmin(dists_dir2)
+                            max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d[dir2_inds].T)))
+                            # min_ind = np.argmin(dists_dir1)
+                            keep = connected_inds[dir2_inds[max_alignment_ind]]
+                            # keep = connected_inds[dir2_inds[min_ind]]
+                            # ipdb.set_trace()
+                            for ind2 in dir2_inds:
+                                if keep != connected_inds[ind2]:
+                                    self.pred_wf_edges.remove((ind1, connected_inds[ind2]) if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
+                    
+                    elif keep_ == "none":
+                        # remove all edges
+                        for ind2 in connected_inds:
+                            self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
+
+
+            # Add the eave and apex edges
+            apex_inds = np.where(vertex_classes == 'apex')[0]
+            eave_inds = np.where(vertex_classes == 'eave_end_point')[0]
+
+            for apex_ind in apex_inds:
+                
+                if self.pred_verts_num_close_sfm_pts[apex_ind] < 5:
+                    continue
+                
+                for eave_ind in eave_inds:
+                    
+                    if self.pred_verts_num_close_sfm_pts[eave_ind] < 5:
+                        continue
+
+                    line_3d = vertices[apex_ind] - vertices[eave_ind]
+                    line_dir_3d = line_3d/np.linalg.norm(line_3d)
+                    
+                    hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
+                    min_hor_align = np.min(hor_align)
+                    if min_hor_align > 0.1:
+                        continue
+
+                    # print(f"Line direction: {line_dir_3d}")
+                    # print(f"Horizontal alignment: {hor_align}")
+
                     # visualize_3d_line_debug(self.sfm_points, self.gt_wf_vertices, self.gt_wf_edges, 
-                    #                             self.pred_wf_vertices, self.pred_wf_vertices_classes, 
-                    #                             connected_points, self.horizontal_components)
+                    #                         self.pred_wf_vertices, self.pred_wf_vertices_classes, 
+                    #                         np.array([vertices[apex_ind], vertices[eave_ind]]), self.horizontal_components)
                     
-                    # keep at most one line along each of the horizontal directions
-                    line_dirs_3d = np.array([vertices[ind2] - vertices[ind1] for ind2 in connected_inds])
-                    line_dirs_3d = line_dirs_3d/np.linalg.norm(line_dirs_3d, axis = 1, keepdims=True)
-                    dir1_inds = np.where(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d.T)) > 0.98)[0]
-                    dir2_inds = np.where(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d.T)) > 0.98)[0]
+                    decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
+                                                    vertices[apex_ind], vertices[eave_ind], vertex_classes[apex_ind], vertex_classes[eave_ind],
+                                                    debug_visualize = False, house_number = f"{self.house_key}_{ind1}_{ind2}")
+
+                    if decision_2d:
+                        # print("Edge accepted")
+                        self.pred_wf_edges += [(apex_ind, eave_ind)]
+                    # else:
+                    #     print("Edge rejected")
+
                     
-                    if len(dir1_inds) > 1:
-                        # dists_dir1 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir1_inds]
-                        max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[0], line_dirs_3d[dir1_inds].T)))
-                        # min_ind = np.argmin(dists_dir1)
-                        keep = connected_inds[dir1_inds[max_alignment_ind]]
-                        # ipdb.set_trace()
-                        for ind2 in dir1_inds:
-                            if keep != connected_inds[ind2]:
-                                self.pred_wf_edges.remove((ind1, connected_inds[ind2])  if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
-                    
-                    if len(dir2_inds) > 1:
-                        # dists_dir2 = [np.linalg.norm(vertices[ind1] - vertices[connected_inds[ind2]]) for ind2 in dir2_inds]
-                        # min_ind = np.argmin(dists_dir2)
-                        max_alignment_ind = np.argmax(np.abs(np.dot(self.horizontal_components[1], line_dirs_3d[dir2_inds].T)))
-                        # min_ind = np.argmin(dists_dir1)
-                        keep = connected_inds[dir2_inds[max_alignment_ind]]
-                        # keep = connected_inds[dir2_inds[min_ind]]
-                        # ipdb.set_trace()
-                        for ind2 in dir2_inds:
-                            if keep != connected_inds[ind2]:
-                                self.pred_wf_edges.remove((ind1, connected_inds[ind2]) if (ind1, connected_inds[ind2]) in self.pred_wf_edges else (connected_inds[ind2], ind1))
-                    
+
 
             # o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
             # o3d_pred_wf = o3d.geometry.LineSet()
