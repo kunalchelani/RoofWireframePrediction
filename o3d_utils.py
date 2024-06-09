@@ -109,3 +109,37 @@ def visualize_3d_line_debug(sfm_points, gt_wf_vertices, gt_wf_edges, pred_wf_ver
 
     o3d.visualization.draw_geometries([o3d_sfm_points, o3d_gt_wf, o3d_major_directions, o3d_pred_points, line_3d])
 
+
+def visualize_final_solution(pred_wf_edges, pred_wf_vertices, pred_wf_vertices_classes, gt_wf_edges, gt_wf_vertices, all_init_triangulated =  None, 
+                             all_init_monocular = None, sfm_points = None):
+
+    o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
+    o3d_pred_wf = o3d.geometry.LineSet()
+    o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
+    o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(pred_wf_edges))
+    if len(pred_wf_edges) > 0:
+        o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(pred_wf_edges)))
+
+    o3d_gt_wf = o3d.geometry.LineSet()
+    o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(gt_wf_vertices))
+    o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(gt_wf_edges))
+
+    if all_init_triangulated is not None:
+        o3d_triangulated = o3d.geometry.PointCloud()
+        o3d_triangulated.points = o3d.utility.Vector3dVector(all_init_triangulated)
+        o3d_triangulated.paint_uniform_color([0, 0.5, 0.2])
+        # o3d.visualization.draw_geometries([o3d_pred_wf, o3d_pred_points, o3d_gt_wf, o3d_triangulated, o3d_monocular])
+    
+    if all_init_monocular is not None:
+        o3d_monocular = o3d.geometry.PointCloud()
+        o3d_monocular.points = o3d.utility.Vector3dVector(all_init_monocular)
+        o3d_monocular.paint_uniform_color([0, 0, 1])
+
+    if sfm_points is not None:
+        o3d_sfm_points = o3d.geometry.PointCloud()
+        o3d_sfm_points.points = o3d.utility.Vector3dVector(sfm_points)
+        o3d_sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+            
+        o3d.visualization.draw_geometries([o3d_monocular, o3d_triangulated, o3d_pred_wf, o3d_pred_points, o3d_gt_wf, o3d_sfm_points])
+    else:
+        o3d.visualization.draw_geometries([o3d_monocular, o3d_triangulated, o3d_pred_wf, o3d_pred_points, o3d_gt_wf])

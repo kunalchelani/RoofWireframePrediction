@@ -9,7 +9,7 @@ import ipdb
 import time
 from tqdm import tqdm
 import argparse
-
+from o3d_utils import visualize_final_solution
 
 def get_iterable_hoho_dataset():
     # data_dir = Path('/local/kunal/lines_localize/challenge/data/data/')
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         
         house_data.get_all_corners_using_monocular_depths()
         print("Obtained all corners using monocular depths")
-        
+
         house_data.triangulate_all_2d_corner_pairs()
         print("Triangulated all 2D corner pairs")
         
@@ -61,6 +61,22 @@ if __name__ == "__main__":
         house_data.get_edges(method="new_hc")
 
         house_data.compute_metric()
+        # if house_data.wed > 2.1:
+            # continue
+            # house_data.plot_detected_2d_corners()
+
+            # # visualize the house
+            # triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
+            # monocular_est_corners = np.array(house_data.monocular_est_corners)
+            # visualize_final_solution(house_data.pred_wf_edges,
+            #                          house_data.pred_wf_vertices,
+            #                          house_data.pred_wf_vertices_classes,
+            #                          house_data.gt_wf_edges,
+            #                          house_data.gt_wf_vertices,
+            #                          triangulated_corners,
+            #                          monocular_est_corners,
+            #                          house_data.sfm_points)
+
         end = time.time()
         print("Time taken for one house: ", end-start)
         times.append(end-start)

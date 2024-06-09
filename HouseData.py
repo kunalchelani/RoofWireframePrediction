@@ -8,9 +8,8 @@ from utils_new import triangulate_from_viewpoints
 from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug
 import ipdb
 from utils import process_points
-from hoho import compute_WED
 from skimage.measure import LineModelND, ransac
-
+from hoho import compute_WED
 class HouseData():
 
     def __init__(self, sample):
@@ -516,3 +515,11 @@ class HouseData():
 
         all_dists = np.linalg.norm(sfm_points[:, None] - points_query, axis = -1)
         self.pred_verts_num_close_sfm_pts = np.sum(all_dists < threshold, axis = 0).reshape(-1)
+
+    
+    def plot_detected_2d_corners(self):
+        for i, im in enumerate(self.gestalt_images):
+            plt.imshow(im)
+            for vertex in self.vertices_2d[i]:
+                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=10)
+            plt.show()
