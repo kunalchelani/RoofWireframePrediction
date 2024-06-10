@@ -4,7 +4,9 @@ import open3d as o3d
 
 def triangulate_pair_old(Ks, Rs, ts, vertices, debug_visualize = None,
                                                                    gt_lines_o3d = None,
-                                                                   segmented_images = None):
+                                                                   segmented_images = None,
+                                                                   house_pts = None, 
+                                                                   dist_thresh_house_pts = None):
 
     triangulated_points = []
     vertex_types = []
@@ -16,6 +18,11 @@ def triangulate_pair_old(Ks, Rs, ts, vertices, debug_visualize = None,
             if v1['type'] == v2['type']:
                 
                 X,reprojection_errs  = triangulate_multiview_algebraic_error([proj_mat0, proj_mat1], [v1['xy'], v2['xy']])
+                if house_pts is not None:
+                    min_dist_house_pts = np.min(np.linalg.norm(house_pts - X.reshape(1,3), axis = 1))
+                    if min_dist_house_pts > dist_thresh_house_pts[v1['type']]:
+                        continue
+
                 if np.sum(reprojection_errs) < 10:
                     # if verbose:
                     #     d1 = np.dot(Rs[0][2, :], X) + ts[0][2]
@@ -28,7 +35,8 @@ def triangulate_pair_old(Ks, Rs, ts, vertices, debug_visualize = None,
 
     return triangulated_points, vertex_types, pair_inds
 
-def triangulate_from_viewpoints(Ks, Rs, ts, vertices, debug_visualize = False, gt_lines_o3d = None, segmented_images = None):
+def triangulate_from_viewpoints(Ks, Rs, ts, vertices, debug_visualize = False, gt_lines_o3d = None, segmented_images = None, house_pts = None, 
+                                                                   dist_thresh_house_pts = 100):
     if debug_visualize:
         vis = o3d.visualization.Visualizer()
         vis.create_window()
@@ -51,7 +59,10 @@ def triangulate_from_viewpoints(Ks, Rs, ts, vertices, debug_visualize = False, g
             triangulated_points_, vertex_types_, pair_inds_ = triangulate_pair_old(Ks_, Rs_, ts_, [vertices[i], vertices[j]],
                                                                    debug_visualize = debug_visualize,
                                                                    gt_lines_o3d = gt_lines_o3d,
-                                                                   segmented_images = segmented_images_)
+                                                                   segmented_images = segmented_images_,
+                                                                   house_pts = house_pts, 
+                                                                   dist_thresh_house_pts = dist_thresh_house_pts,
+                                                                   )
             triangulated_points += triangulated_points_
             vertex_types += vertex_types_
             pair_inds_ = [(i, j, pair_ind) for pair_ind in pair_inds_]

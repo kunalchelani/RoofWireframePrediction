@@ -3,13 +3,16 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import hoho
 from pathlib import Path
-from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d, compute_WED
+from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d, compute_WED, compute_distances_to_line, PlaneModel
 from utils_new import triangulate_from_viewpoints
 from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug, process_sfm_pc
 import ipdb
 from utils import process_points
 from skimage.measure import LineModelND, ransac
 from hoho import vis
+from sklearn.linear_model import RANSACRegressor
+from sklearn.base import BaseEstimator, RegressorMixin
+
 # from hoho import compute_WED
 class HouseData():
 
@@ -61,7 +64,9 @@ class HouseData():
                                                                           vertices = self.vertices_2d, 
                                                                           segmented_images = self.gestalt_images,
                                                                           debug_visualize = False,
-                                                                          gt_lines_o3d = None)
+                                                                          gt_lines_o3d = None,
+                                                                          house_pts = None, 
+                                                                          dist_thresh_house_pts = None)
 
         for i,_ in enumerate(triangulated_corners):
             for k in range(2):
@@ -81,7 +86,7 @@ class HouseData():
         # print(np.mean(min_dists_pred_to_gt), np.mean(min_dists_gt_to_pred))
 
     
-    def get_all_corners_using_monocular_depths(self, visualize = False):
+    def get_all_corners_using_monocular_depths(self, dist_thresh_house_pts_monocular = None, visualize = False):
 
         assert self.vertices_2d is not None
         monocular_est_corners = []
@@ -89,12 +94,25 @@ class HouseData():
             positions = np.array([vert['xy'] for vert in vertices_set]).astype(np.int32)
             monocular_depth_np = np.array(self.monocular_depths[i])
             scale, max_z = get_scale_from_sfm_points(monocular_depth_np, self.sfm_points, self.Ks[i], self.Rs[i], self.ts[i])
-            scale = min(scale, 1.5)
+            scale = min(scale, 1.0)
             monocular_est_corners_, mask = get_monocular_depths_at(monocular_depth_np, self.Ks[i], self.Rs[i], self.ts[i], positions, scale = scale, max_z = 2*max_z)
             
+            if dist_thresh_house_pts_monocular is not None:
+                dists_corners_house_pts = np.linalg.norm(self.house_pts[:, np.newaxis, :] - monocular_est_corners_[np.newaxis, :, :], axis = 2)
+                min_dists = np.min(dists_corners_house_pts, axis = 0)
+
             for i,vertex in enumerate(vertices_set):
-                vertex['monocular_corner'] = monocular_est_corners_[i] if mask[i] else None
-            
+                if mask[i]:
+                    if dist_thresh_house_pts_monocular  is not None:
+                        if min_dists[i] < dist_thresh_house_pts_monocular[vertex['type']]:
+                            vertex['monocular_corner'] = monocular_est_corners_[i]
+                        else:
+                            vertex['monocular_corner'] = None
+                    else:
+                        vertex['monocular_corner'] = monocular_est_corners_[i]
+                else:
+                    vertex['monocular_corner'] = None
+
             monocular_est_corners += [monocular_est_corners_[i] for i in range(len(vertices_set)) if mask[i]]
                     
             if visualize:
@@ -614,19 +632,20 @@ class HouseData():
                 # print(f"Adding edge: {curr_center_ind} {curr_center_ind + j + 1}")
 
                 # find the closest point of the ray to the house_points
-
-                house_pt_dists = np.linalg.norm(self.house_pts - cam_center, axis = 1)
+                line_dir = X_ray_w - cam_center
+                line_dir = line_dir/np.linalg.norm(line_dir)
+                house_pt_dists = compute_distances_to_line(self.house_pts, cam_center, line_dir.reshape(3,1))
                 five_closest_pts = np.argsort(house_pt_dists)[:5]
-                closest_house_pt_ind = np.argmin(np.linalg.norm(self.house_pts[five_closest_pts] - cam_center, axis = 1))
+                closest_house_pt_ind = five_closest_pts[np.argmin(np.linalg.norm(self.house_pts[five_closest_pts] - cam_center, axis = 1))]
+                # ipdb.set_trace()
                 closest_house_pt = self.house_pts[closest_house_pt_ind]
-
                 # if np.linalg.norm(closest_house_pt - cam_center) < 2000:
-                vertex['monocular_corner'] = closest_house_pt
+                vertex['monocular_corner_new'] = closest_house_pt
                 mask[j] = True
                 
-            monocular_est_corners += [vertices_set[j]['monocular_corner'] for j in range(len(vertices_set)) if mask[j]]
+            monocular_est_corners += [vertices_set[j]['monocular_corner_new'] for j in range(len(vertices_set)) if mask[j]]
         
-        self.monocular_est_corners = monocular_est_corners
+        self.monocular_est_corners_new = monocular_est_corners
 
         # ray_line_points = np.vstack(ray_line_points)
 
@@ -672,3 +691,168 @@ class HouseData():
         # #         o3d.visualization.draw_geometries([o3d_mnocular_depth_pts, o3d_gt_wf])
 
         # # self.monocular_est_corners = monocular_est_corners
+
+    def merge_triangulated_monocular_corners_new(self, merge_neighbors_final = True):
+    
+        triangulated_corners = [corner['xyz'] for corner in self.triangulated_corners]
+        # triangulated_corners_arr = np.array(triangulated_corners)
+        # dists_to_sfm_pts = np.linalg.norm(triangulated_corners_arr[:, None] - self.sfm_points, axis = -1)
+        # keep_inds = np.where(np.min(dists_to_sfm_pts, axis = 1) > 200)[0]
+        # triangulated_corners = [corner['xyz'] for i, corner in enumerate(self.triangulated_corners) if i in keep_inds]
+
+        merged_pts = []
+        merged_pts_classes = []
+        outliers_triangulated = {i: False for i in range(len(triangulated_corners))}
+        
+        for i, vertex_set in enumerate(self.vertices_2d):
+            for j, vertex in enumerate(vertex_set):
+                if 'tri_corner_inds' in vertex:
+                    if len(vertex['tri_corner_inds']) > 1:
+
+                        if vertex['monocular_corner_new'] is not None:
+                            min_ind = np.argmin([np.linalg.norm(triangulated_corners[tri_ind] - vertex['monocular_corner_new']) for tri_ind in vertex['tri_corner_inds']])
+                            merged_pts.append(triangulated_corners[vertex['tri_corner_inds'][min_ind]])
+                            merged_pts_classes.append(vertex['type'])
+
+                            # Mark the other triangulated points as outliers
+                            for tri_ind in vertex['tri_corner_inds']:
+                                if tri_ind != vertex['tri_corner_inds'][min_ind]:
+                                    # outliers_triangulated[tri_ind] = True
+                                    continue
+
+                        else:
+                            # keep the one with the minimum norm
+                            min_ind = np.argmin([np.linalg.norm(triangulated_corners[tri_ind]) for tri_ind in vertex['tri_corner_inds']])
+                            merged_pts.append(triangulated_corners[vertex['tri_corner_inds'][min_ind]])
+                            merged_pts_classes.append(vertex['type'])
+
+                            for tri_ind in vertex['tri_corner_inds']:
+                                if tri_ind != vertex['tri_corner_inds'][min_ind]:
+                                    # outliers_triangulated[tri_ind] = True
+                                    continue
+        
+        for i, vertex_set in enumerate(self.vertices_2d):
+            for j, vertex in enumerate(vertex_set):
+                if 'tri_corner_inds' in vertex:
+
+                    if len(vertex['tri_corner_inds']) == 1:
+                        # if vertex['monocular_corner_new'] is not None:
+                        #     # append triangulated if the distance from monocular depth is < 500
+                        #     if (np.linalg.norm(triangulated_corners[vertex['tri_corner_inds'][0]] - vertex['monocular_corner_new']) < 500) and not outliers_triangulated[vertex['tri_corner_inds'][0]]:
+                        merged_pts.append(triangulated_corners[vertex['tri_corner_inds'][0]])
+                        merged_pts_classes.append(vertex['type'])
+                        # else:
+                        #     if not outliers_triangulated[vertex['tri_corner_inds'][0]]:
+                        #         merged_pts.append(triangulated_corners[vertex['tri_corner_inds'][0]])
+                        #         merged_pts_classes.append(vertex['type'])
+                else:
+                    # print("Checking for monocular corner")
+                    if (vertex['monocular_corner'] is not None):
+                        if vertex['monocular_corner_new'] is not None:
+                            if np.linalg.norm(vertex['monocular_corner'] - vertex['monocular_corner_new']) > 500:
+                                merged_pts.append(vertex['monocular_corner'])   
+                                # merged_pts.append(avg_point)
+                                merged_pts_classes.append(vertex['type'])
+                                # print("Added monocular corner"
+                            else:
+                                merged_pts.append(vertex['monocular_corner_new'])
+                                merged_pts_classes.append(vertex['type'])
+                    else:
+                        merged_pts.append(vertex['monocular_corner_new'])
+                        merged_pts_classes.append(vertex['type'])
+                        # print("Added monocular corner")
+        
+        merged_pts_o3d = get_triangulated_pts_o3d_pc(merged_pts, merged_pts_classes)
+        # o3d.visualization.draw_geometries([merged_pts_o3d, gt_house_wf])
+        
+        if merge_neighbors_final:
+            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 50, remove = False, append = False)
+        
+        self.pred_wf_vertices = merged_pts
+        self.pred_wf_vertices_classes = merged_pts_classes
+
+    def triangulate_all_2d_corner_pairs_new(self):
+        """
+        Triangulate all 2D corner pairs in the house
+        """
+        dist_thresh_house_pts ={'eave_end_point': 1000, 'apex': 1000, 'flashing_end_point': 1000}
+        triangulated_corners, vertex_types, image_vertex_inds = triangulate_from_viewpoints(Ks = self.Ks, 
+                                                                          Rs = self.Rs, 
+                                                                          ts = self.ts, 
+                                                                          vertices = self.vertices_2d, 
+                                                                          segmented_images = self.gestalt_images,
+                                                                          debug_visualize = False,
+                                                                          gt_lines_o3d = None,
+                                                                          house_pts = self.house_pts, 
+                                                                          dist_thresh_house_pts = dist_thresh_house_pts)
+
+        for i,_ in enumerate(triangulated_corners):
+            for k in range(2):
+                assoc_vertex = (image_vertex_inds[i][k], image_vertex_inds[i][2][k])
+                
+                if 'tri_corner_inds' in self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]:
+                    self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_corner_inds'] += [i]
+                    self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_assoc_2d'] += [(image_vertex_inds[i][1-k], image_vertex_inds[i][2][1-k])]
+                else:
+                    self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_corner_inds'] = [i]
+                    self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_assoc_2d'] = [(image_vertex_inds[i][1-k], image_vertex_inds[i][2][1-k])]
+        
+        min_dists_pred_to_gt, min_dists_gt_to_pred = compute_min_dists_to_gt(triangulated_corners, self.gt_wf_vertices)
+        
+        self.triangulated_corners = [{"xyz" : xyz, "type" : vertex_type} for xyz, vertex_type in zip(triangulated_corners, vertex_types)]
+
+    def merge_triangulated_monocular_corners_keep_all(self, merge_neighbors_final = True):
+        
+        triangulated_corners = [corner['xyz'] for corner in self.triangulated_corners]
+
+        merged_pts = []
+        merged_pts_classes = []
+
+        replace_incorrect = False
+        # check if several monocular new point lie on a plane, then use monocular corner
+        X = np.array(self.monocular_est_corners_new)
+        pwise_dists = np.linalg.norm(X[:, None] - X, axis = -1)
+        num_close = np.sum(pwise_dists < 50, axis = 1)
+        incorrect_inds = np.where(num_close > 4)[0]
+        if np.sum(incorrect_inds) > 5:
+            replace_incorrect = True
+            # visualize the house pts
+            # o3d_house_points = o3d.geometry.PointCloud()
+            # o3d_house_points.points = o3d.utility.Vector3dVector(self.house_pts)
+            # o3d_house_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+            # o3d_gt_wf = o3d.geometry.LineSet()
+            # o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+            # o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+
+            # o3d_mc_new = o3d.geometry.PointCloud()
+            # o3d_mc_new.points = o3d.utility.Vector3dVector(X)
+            # o3d_mc_new.paint_uniform_color([0, 0, 1])
+
+            # o3d_mc = o3d.geometry.PointCloud()
+            # o3d_mc.points = o3d.utility.Vector3dVector(np.array(self.monocular_est_corners))
+            # o3d_mc.paint_uniform_color([1, 0, 0])
+
+            # o3d.visualization.draw_geometries([o3d_house_points, o3d_gt_wf, o3d_mc_new, o3d_mc])
+
+        for vertex_set in self.vertices_2d:
+            for vertex in vertex_set:
+                if 'tri_corner_inds' in vertex:
+                    for i in vertex['tri_corner_inds']:
+                        merged_pts.append(triangulated_corners[i])
+                        merged_pts_classes.append(vertex['type'])
+                else:
+                    if vertex['monocular_corner_new'] is not None:
+                        merged_pts.append(vertex['monocular_corner_new'])
+                        merged_pts_classes.append(vertex['type'])
+
+                    if replace_incorrect:
+                        if vertex['monocular_corner'] is not None:
+                            merged_pts.append(vertex['monocular_corner'])
+                            merged_pts_classes.append(vertex['type'])
+
+        if merge_neighbors_final:
+            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 30, remove = False, append = False)
+        
+        self.pred_wf_vertices = merged_pts
+        self.pred_wf_vertices_classes = merged_pts_classes

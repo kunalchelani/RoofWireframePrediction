@@ -32,7 +32,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     iterable_dataset = get_iterable_hoho_dataset()
-    
+    dist_thresh_house_pts_monocular = {'apex' : 250, 'eave_end_point' : 250,  'flashing_end_point' : 250}
     weds = {}
     times = []
     for i in tqdm(range(args.num_houses)):
@@ -47,22 +47,69 @@ if __name__ == "__main__":
         house_data.process_sfm_pc()
 
         house_data.get_monocular_depths_from_sfm_intersection()
+
+        house_data.get_all_corners_using_monocular_depths(dist_thresh_house_pts_monocular = dist_thresh_house_pts_monocular)
         
-        house_data.triangulate_all_2d_corner_pairs()
+        house_data.triangulate_all_2d_corner_pairs_new()
         print("Triangulated all 2D corner pairs")
 
         triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
         monocular_est_corners = np.array(house_data.monocular_est_corners)
 
+        # house_data.merge_triangulated_monocular_corners_new()
+        house_data.merge_triangulated_monocular_corners_keep_all()
+        
+        house_data.get_num_sfm_points_within(200)
+
+        house_data.get_lines_from_sfm_points(visualize = False)
+            
+        house_data.get_edges(method="new_hc")
+
+        house_data.compute_metric()
+
+        # house_data.plot_2d()
+        # if house_data.wed > 2.2:
+            
+        #     house_data.plot_2d()
+
+        #     # visualize the house
+        #     triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
+        #     monocular_est_corners = np.array(house_data.monocular_est_corners)
+
+        #     visualize_final_solution(house_data.pred_wf_edges,
+        #                              house_data.pred_wf_vertices,
+        #                              house_data.pred_wf_vertices_classes,
+        #                              house_data.gt_wf_edges,
+        #                              house_data.gt_wf_vertices,
+        #                             #  triangulated_corners,
+        #                             #  monocular_est_corners,
+        #                              None,
+        #                              None,
+        #                              house_data.house_pts)
+            
+        #     ipdb.set_trace()
+            
+        #     continue
+
+        end = time.time()
+        print("Time taken for one house: ", end-start)
+        times.append(end-start)
+        weds[house_data.house_key] = house_data.wed
+        # ipdb.set_trace()
+        print(f"Running mean WED: {np.mean(np.array(list(weds.values())))}")
+        print("Running median WED: ", np.median(np.array(list(weds.values()))))
+
         # visualize the triangulated and monocular est points along with sfm_pts and gt_wireframe
-        visualize_final_solution(None,
-                                     None,
-                                     None,
-                                     house_data.gt_wf_edges,
-                                     house_data.gt_wf_vertices,
-                                     triangulated_corners,
-                                     monocular_est_corners,
-                                     None)
+        # visualize_final_solution(None,
+        #                              house_data.pred_wf_vertices,
+        #                              house_data.pred_wf_vertices_classes,
+        #                              house_data.gt_wf_edges,
+        #                              house_data.gt_wf_vertices,
+        #                              all_init_triangulated = None,
+        #                              all_init_monocular = None,
+        #                              sfm_points = None)
+        #                             #  monocular_est_corners,
+                                    #  house_data.sfm_points)
         
         continue
         

@@ -9,6 +9,9 @@ import os
 import time
 import o3d_utils
 import matplotlib
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.linear_model import RANSACRegressor
+
 # matplotlib.use('GTK4Agg')
 
 def get_vertices_from_gestalt(segim, color_threshold = 10):
@@ -28,7 +31,7 @@ def get_vertices_from_gestalt(segim, color_threshold = 10):
         vertex_mask = cv2.inRange(gest_seg_np,  vertex_color-color_threshold/2, vertex_color+color_threshold/2)
         # apply the max filter to merge close by clusters
         # vertex_mask = cv2.dilate(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
-        vertex_mask  = cv2.erode(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
+        vertex_mask  = cv2.erode(vertex_mask, np.ones((1,1), np.uint8), iterations=1)
         if vertex_mask.sum() > 0:
             output = cv2.connectedComponentsWithStats(vertex_mask, 8, cv2.CV_32S)
             (numLabels, labels, stats, centroids) = output
@@ -750,6 +753,7 @@ def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, m
     Kinv = np.linalg.inv(K)
     
     xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * (scale)
+
     mask = (xyz[:,2] < max_z).T
 
     xyz = np.dot(R.T, xyz.T - t.reshape(3,1))
@@ -1020,3 +1024,33 @@ def compute_WED(pd_vertices, pd_edges, gt_vertices, gt_edges, cv_ins=-1/2, cv_de
         
     # print ("Total length", total_length_of_gt_edges)
     return WED
+
+def compute_distances_to_line(points, line_point, line_dir):
+    # Ensure the direction vector is a unit vector
+    line_dir = line_dir / np.linalg.norm(line_dir)
+    
+    # Vector from line point to each point
+    vec_to_points = points - line_point
+    
+    # Project vec_to_points onto the line direction
+    projections = np.dot(vec_to_points, line_dir)
+    
+    # Closest points on the line
+    closest_points_on_line = line_point + np.outer(projections, line_dir)
+    
+    # Distance vectors from the points to the closest points on the line
+    distance_vectors = points - closest_points_on_line
+    
+    # Distances
+    distances = np.linalg.norm(distance_vectors, axis=1)
+    
+    return distances
+
+class PlaneModel(BaseEstimator, RegressorMixin):
+    def fit(self, X, y):
+        A = np.c_[X, np.ones(X.shape[0])]
+        self.coef_, self.intercept_ = np.linalg.lstsq(A, y, rcond=None)[0][:3], np.linalg.lstsq(A, y, rcond=None)[0][3]
+        return self
+
+    def predict(self, X):
+        return np.dot(X, self.coef_) + self.intercept_

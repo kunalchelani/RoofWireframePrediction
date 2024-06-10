@@ -117,14 +117,16 @@ def visualize_final_solution(pred_wf_edges, pred_wf_vertices, pred_wf_vertices_c
                              all_init_monocular = None, sfm_points = None):
 
     geometries = []
-    if pred_wf_vertices is not None:
+    if (pred_wf_vertices is not None) and (pred_wf_vertices_classes is not None):
         o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
-        o3d_pred_wf = o3d.geometry.LineSet()
-        o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
-        o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(pred_wf_edges))
-        if len(pred_wf_edges) > 0:
-            o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(pred_wf_edges)))
-        geometries += [o3d_pred_wf, o3d_pred_points]
+        geometries += [o3d_pred_points]
+        if (pred_wf_edges is not None) and (len(pred_wf_edges) > 0):
+            o3d_pred_wf = o3d.geometry.LineSet()
+            o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
+            o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(pred_wf_edges))
+            if len(pred_wf_edges) > 0:
+                o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(pred_wf_edges)))
+            geometries += [o3d_pred_wf]
 
     if sfm_points is not None:
         o3d_sfm_points = o3d.geometry.PointCloud()
@@ -246,10 +248,14 @@ def process_sfm_pc(sfm_pc):
     unique_labels, counts = np.unique(labels, return_counts=True)
     sorted_counts = np.argsort(counts[1:])[::-1]
     largest_cluster_inds = np.where(labels == sorted_counts[0])[0]
-    second_largest_cluster_inds = np.where(labels == sorted_counts[1])[0]
 
-    if len(second_largest_cluster_inds) > (0.25 * len(second_largest_cluster_inds)):
-        house_inds = np.concatenate([largest_cluster_inds, second_largest_cluster_inds])
+    if len(sorted_counts) > 1:
+        second_largest_cluster_inds = np.where(labels == sorted_counts[1])[0]
+
+        if len(second_largest_cluster_inds) > (0.25 * len(second_largest_cluster_inds)):
+            house_inds = np.concatenate([largest_cluster_inds, second_largest_cluster_inds])
+        else:
+            house_inds = largest_cluster_inds
     else:
         house_inds = largest_cluster_inds
     
