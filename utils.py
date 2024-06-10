@@ -28,13 +28,16 @@ def get_vertices_from_gestalt(segim, color_threshold = 10):
         vertex_mask = cv2.inRange(gest_seg_np,  vertex_color-color_threshold/2, vertex_color+color_threshold/2)
         # apply the max filter to merge close by clusters
         # vertex_mask = cv2.dilate(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
-        vertex_mask  = cv2.erode(vertex_mask, np.ones((3,3), np.uint8), iterations=1)
+        vertex_mask  = cv2.erode(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
         if vertex_mask.sum() > 0:
             output = cv2.connectedComponentsWithStats(vertex_mask, 8, cv2.CV_32S)
             (numLabels, labels, stats, centroids) = output
+            # ipdb.set_trace()
             stats, centroids = stats[1:], centroids[1:]
-        
             # Add the centroid of the gestalt to the list of vertices
+            inds = np.where(stats[:,4] >= 5)[0]
+            stats = stats[inds]
+            centroids = centroids[inds]
             for i, centroid in enumerate(centroids):
                 vertices.append({"xy": centroid, "type": vtype})
             
@@ -753,7 +756,7 @@ def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, m
 
     return xyz.T, mask
 
-def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t):
+def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t, debug_visualize = False):
 
     projected_depth = np.zeros_like(monocular_depth)
     projection_matrix = np.dot(K, np.hstack((R, t.reshape(3,1))))
@@ -763,15 +766,19 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t):
     projected_pts[:,:2] /= projected_pts[:,2].reshape(-1,1)
     non_zero = projected_pts[:,2] != 0
     projected_pts = projected_pts[non_zero]
-    
+
+    # if debug_visualize:
+    #     visualize_sfm_monocular_depth(sfm_points, projected_pts, monocular_depth, K, R, t)
+
+
     x = projected_pts[:,0].astype(np.int32)
     y = projected_pts[:,1].astype(np.int32)
     z = projected_pts[:,2]
-
-     
+    
     # print(z.min(), z.max())
     # use only the 25 percent closest points
-    max_z = np.percentile(z, 25)
+    max_z = np.percentile(z, 30)
+    
     mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z)
 
     x = x[mask]

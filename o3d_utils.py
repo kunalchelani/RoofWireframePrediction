@@ -2,6 +2,9 @@ import open3d as o3d
 import numpy as np
 from hoho.color_mappings import gestalt_color_mapping
 import ipdb
+from hoho import vis
+import matplotlib.pyplot as plt
+from sklearn.cluster import DBSCAN
 
 def get_triangulated_pts_o3d_pc(triangulated_corners, triangulated_corner_classes):
     triangulated_pts_o3d = o3d.geometry.PointCloud()
@@ -113,33 +116,141 @@ def visualize_3d_line_debug(sfm_points, gt_wf_vertices, gt_wf_edges, pred_wf_ver
 def visualize_final_solution(pred_wf_edges, pred_wf_vertices, pred_wf_vertices_classes, gt_wf_edges, gt_wf_vertices, all_init_triangulated =  None, 
                              all_init_monocular = None, sfm_points = None):
 
-    o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
-    o3d_pred_wf = o3d.geometry.LineSet()
-    o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
-    o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(pred_wf_edges))
-    if len(pred_wf_edges) > 0:
-        o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(pred_wf_edges)))
-
-    o3d_gt_wf = o3d.geometry.LineSet()
-    o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(gt_wf_vertices))
-    o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(gt_wf_edges))
-
-    if all_init_triangulated is not None:
-        o3d_triangulated = o3d.geometry.PointCloud()
-        o3d_triangulated.points = o3d.utility.Vector3dVector(all_init_triangulated)
-        o3d_triangulated.paint_uniform_color([0, 0.5, 0.2])
-        # o3d.visualization.draw_geometries([o3d_pred_wf, o3d_pred_points, o3d_gt_wf, o3d_triangulated, o3d_monocular])
-    
-    if all_init_monocular is not None:
-        o3d_monocular = o3d.geometry.PointCloud()
-        o3d_monocular.points = o3d.utility.Vector3dVector(all_init_monocular)
-        o3d_monocular.paint_uniform_color([0, 0, 1])
+    geometries = []
+    if pred_wf_vertices is not None:
+        o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
+        o3d_pred_wf = o3d.geometry.LineSet()
+        o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
+        o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(pred_wf_edges))
+        if len(pred_wf_edges) > 0:
+            o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(pred_wf_edges)))
+        geometries += [o3d_pred_wf, o3d_pred_points]
 
     if sfm_points is not None:
         o3d_sfm_points = o3d.geometry.PointCloud()
         o3d_sfm_points.points = o3d.utility.Vector3dVector(sfm_points)
         o3d_sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
-            
-        o3d.visualization.draw_geometries([o3d_monocular, o3d_triangulated, o3d_pred_wf, o3d_pred_points, o3d_gt_wf, o3d_sfm_points])
+        geometries += [o3d_sfm_points]
+
+    if gt_wf_vertices is not None:
+        o3d_gt_wf = o3d.geometry.LineSet()
+        o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(gt_wf_vertices))
+        o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(gt_wf_edges))
+        geometries += [o3d_gt_wf]
+
+    if all_init_triangulated is not None:
+        o3d_triangulated = o3d.geometry.PointCloud()
+        o3d_triangulated.points = o3d.utility.Vector3dVector(all_init_triangulated)
+        o3d_triangulated.paint_uniform_color([0, 0.5, 0.2])
+        geometries += [o3d_triangulated]
+
+    if all_init_monocular is not None:
+        o3d_monocular = o3d.geometry.PointCloud()
+        o3d_monocular.points = o3d.utility.Vector3dVector(all_init_monocular)
+        o3d_monocular.paint_uniform_color([0, 0, 1])
+        geometries += [o3d_monocular]
+
+    o3d.visualization.draw_geometries(geometries)        
+
+
+
+
+def visualize_sfm_monocular_depth(sfm_points, monocular_depth, K, R, t):
+    pass
+
+
+# def process_sfm_pc(sfm_pc):
+
+#     o3d_sfm_points = o3d.geometry.PointCloud()
+#     o3d_sfm_points.points = o3d.utility.Vector3dVector(sfm_pc)
+#     o3d_sfm_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+#     # filter based on z, remove points less than 50 cm in height or the lower 20 percentile
+#     threshold = np.percentile(sfm_pc[:,2], 25)
+#     threshold = np.max([np.min([threshold, 50]), 20])
+#     print("thrshold: ", threshold)
+#     sfm_pc = np.array(sfm_pc)
+#     sfm_pc = sfm_pc[sfm_pc[:,2] > threshold]
+#     o3d_sfm_points_filtered = o3d.geometry.PointCloud()
+#     o3d_sfm_points_filtered.points = o3d.utility.Vector3dVector(sfm_pc)
+
+#     # connect the vertices with at least 2 other vertices close to them
+#     # dists = np.linalg.norm(sfm_pc[:,None] - sfm_pc, axis=-1)
+#     # # sort along rows
+#     # sorted_dists = np.argsort(dists, axis=-1)
+#     # # get the first 3 closest points
+#     # closest_points = sorted_dists[:,1:4]
+
+#     from sklearn.cluster import DBSCAN
+    
+#     db = DBSCAN(eps=75, min_samples=10).fit(sfm_pc)
+#     labels = db.labels_
+
+#     n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+#     n_noise_ = list(labels).count(-1)
+
+#     print(f'Estimated number of clusters: {n_clusters_}')
+#     print(f'Estimated number of noise points: {n_noise_}')
+
+#     # Add labels to the point cloud
+#     max_label = labels.max()
+#     colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+#     colors[labels == -1] = 0  # Noise points set to black
+#     o3d_sfm_points_filtered.colors = o3d.utility.Vector3dVector(colors[:, :3])
+
+#     # only take the points of the largest cluster
+#     unique_labels, counts = np.unique(labels, return_counts=True)
+#     largest_cluster_label = unique_labels[np.argmax(counts[1:])+1] # Skip the noise label (-1)
+#     largest_cluster_points = sfm_pc[labels == largest_cluster_label]
+    
+#     # o3d_sfm_points_filtered_largest = o3d.geometry.PointCloud()
+#     # o3d_sfm_points_filtered_largest.points = o3d.utility.Vector3dVector(largest_cluster_points)
+#     # o3d_sfm_points_filtered_largest.paint_uniform_color([0.5, 0, 0])
+
+#     # if the second largest cluster is at least 20 percent of the largest cluster, then take the second largest cluster as well and return both
+#     second_largest_cluster_label = unique_labels[np.argsort(counts[1:])[::-1][1]] # Skip the noise label (-1)
+#     second_largest_cluster_points = sfm_pc[labels == second_largest_cluster_label]
+
+#     if len(second_largest_cluster_points) > 0.2*len(largest_cluster_points):
+        
+#             return o3d_sfm_points_filtered, o3d_sfm_points_filtered_largest, o3d_sfm_points_filtered_second_largest
+
+#     # o3d.visualization.draw_geometries([o3d_sfm_points, o3d_sfm_points_filtered, o3d_sfm_points_filtered_largest])
+
+
+def process_sfm_pc(sfm_pc):
+
+    # filter based on z, remove points less than 50 cm in height or the lower 20 percentile
+    threshold = np.percentile(sfm_pc[:,2], 25)
+    threshold = np.max([np.min([threshold, 50]), 20])
+    print("thrshold: ", threshold)
+    sfm_pc = np.array(sfm_pc)
+    sfm_pc = sfm_pc[sfm_pc[:,2] > threshold]
+
+    
+    db = DBSCAN(eps=75, min_samples=10).fit(sfm_pc)
+    labels = db.labels_
+
+    n_clusters_ = len(set(labels)) - (1 if -1 in labels else 0)
+    n_noise_ = list(labels).count(-1)
+
+    print(f'Estimated number of clusters: {n_clusters_}')
+    print(f'Estimated number of noise points: {n_noise_}')
+
+    # Add labels to the point cloud
+    max_label = labels.max()
+    colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+    colors[labels == -1] = 0  # Noise points set to black
+
+    # only take the points of the largest cluster
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    sorted_counts = np.argsort(counts[1:])[::-1]
+    largest_cluster_inds = np.where(labels == sorted_counts[0])[0]
+    second_largest_cluster_inds = np.where(labels == sorted_counts[1])[0]
+
+    if len(second_largest_cluster_inds) > (0.25 * len(second_largest_cluster_inds)):
+        house_inds = np.concatenate([largest_cluster_inds, second_largest_cluster_inds])
     else:
-        o3d.visualization.draw_geometries([o3d_monocular, o3d_triangulated, o3d_pred_wf, o3d_pred_points, o3d_gt_wf])
+        house_inds = largest_cluster_inds
+    
+    return sfm_pc[house_inds]

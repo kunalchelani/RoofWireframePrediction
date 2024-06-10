@@ -41,12 +41,32 @@ if __name__ == "__main__":
         start = time.time()
         house_data = HouseData(sample)
 
-        # house_data.get_sfm_pca()
-
         house_data.get_2d_corners()
         print("Obtained 2D corners")
+
+        house_data.process_sfm_pc()
+
+        house_data.get_monocular_depths_from_sfm_intersection()
         
-        house_data.get_all_corners_using_monocular_depths()
+        house_data.triangulate_all_2d_corner_pairs()
+        print("Triangulated all 2D corner pairs")
+
+        triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
+        monocular_est_corners = np.array(house_data.monocular_est_corners)
+
+        # visualize the triangulated and monocular est points along with sfm_pts and gt_wireframe
+        visualize_final_solution(None,
+                                     None,
+                                     None,
+                                     house_data.gt_wf_edges,
+                                     house_data.gt_wf_vertices,
+                                     triangulated_corners,
+                                     monocular_est_corners,
+                                     None)
+        
+        continue
+        
+        # house_data.get_all_corners_using_monocular_depths()
         print("Obtained all corners using monocular depths")
 
         house_data.triangulate_all_2d_corner_pairs()
@@ -58,24 +78,25 @@ if __name__ == "__main__":
 
         house_data.get_lines_from_sfm_points()
         
-        house_data.get_edges(method="new_hc")
+        house_data.get_edges(method="no_edges")
 
         house_data.compute_metric()
-        # if house_data.wed > 2.1:
-            # continue
-            # house_data.plot_detected_2d_corners()
+        # if house_data.wed > 2:
+            
+        #     house_data.plot_2d()
 
-            # # visualize the house
-            # triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
-            # monocular_est_corners = np.array(house_data.monocular_est_corners)
-            # visualize_final_solution(house_data.pred_wf_edges,
-            #                          house_data.pred_wf_vertices,
-            #                          house_data.pred_wf_vertices_classes,
-            #                          house_data.gt_wf_edges,
-            #                          house_data.gt_wf_vertices,
-            #                          triangulated_corners,
-            #                          monocular_est_corners,
-            #                          house_data.sfm_points)
+        #     # visualize the house
+        #     triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
+        #     monocular_est_corners = np.array(house_data.monocular_est_corners)
+        #     visualize_final_solution(house_data.pred_wf_edges,
+        #                              house_data.pred_wf_vertices,
+        #                              house_data.pred_wf_vertices_classes,
+        #                              house_data.gt_wf_edges,
+        #                              house_data.gt_wf_vertices,
+        #                              triangulated_corners,
+        #                              monocular_est_corners,
+        #                              house_data.sfm_points)
+        #     continue
 
         end = time.time()
         print("Time taken for one house: ", end-start)

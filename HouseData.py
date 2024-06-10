@@ -3,13 +3,14 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import hoho
 from pathlib import Path
-from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d
+from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d, compute_WED
 from utils_new import triangulate_from_viewpoints
-from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug
+from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug, process_sfm_pc
 import ipdb
 from utils import process_points
 from skimage.measure import LineModelND, ransac
-from hoho import compute_WED
+from hoho import vis
+# from hoho import compute_WED
 class HouseData():
 
     def __init__(self, sample):
@@ -88,7 +89,7 @@ class HouseData():
             positions = np.array([vert['xy'] for vert in vertices_set]).astype(np.int32)
             monocular_depth_np = np.array(self.monocular_depths[i])
             scale, max_z = get_scale_from_sfm_points(monocular_depth_np, self.sfm_points, self.Ks[i], self.Rs[i], self.ts[i])
-            scale = min(scale, 0.6)
+            scale = min(scale, 1.5)
             monocular_est_corners_, mask = get_monocular_depths_at(monocular_depth_np, self.Ks[i], self.Rs[i], self.ts[i], positions, scale = scale, max_z = 2*max_z)
             
             for i,vertex in enumerate(vertices_set):
@@ -517,9 +518,157 @@ class HouseData():
         self.pred_verts_num_close_sfm_pts = np.sum(all_dists < threshold, axis = 0).reshape(-1)
 
     
-    def plot_detected_2d_corners(self):
+    def plot_2d(self):
         for i, im in enumerate(self.gestalt_images):
             plt.imshow(im)
             for vertex in self.vertices_2d[i]:
-                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=10)
-            plt.show()
+                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=30, color='black')
+            plt.savefig(f"data/visuals_new/june10_2d/{self.house_key}_{i}.png")
+            plt.close()
+            
+            # plot the depth images as well
+            # plt.imshow(self.monocular_depths[i])
+            depth_image_pil = vis.visualize_depth(self.monocular_depths[i])
+            depth_image_np = np.array(depth_image_pil)
+            plt.imshow(depth_image_np)
+            for vertex in self.vertices_2d[i]:
+                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=30, color='black')
+            plt.savefig(f"data/visuals_new/june10_2d/{self.house_key}_{i}_depth.png")
+            plt.close()
+            # highlight the top 30 percentile
+            # plt.show()
+            
+    # def get_sfm_wall_lines(self):
+        
+    #     points_horizontal = self.sfm_points[:, :2]
+    #     # num_points = 10000
+    #     # if points_horizontal.shape[0] > num_points:
+    #         # points_horizontal = points_horizontal[np.random.choice(points_horizontal.shape[0], num_points, replace = False)]
+    #     # detect lines in the horizontal plane using RANSAC until we have 2 lines which are almost orthogonal
+
+    #     # ipdb.set_trace()
+
+    #     # fit a line to the points
+    #     model = LineModelND()
+    #     model.estimate(points_horizontal)
+
+    #     while inliers < 0.9*points_horizontal.shape[0]:        
+    #         model_robust, inliers = ransac(points_horizontal, LineModelND, min_samples=2, residual_threshold=10, max_trials=1000)
+        
+    #     #visualize the inliers using open3d
+    #     line1_dir_2d = model_robust.params[1]
+    #     line1_dir_3d = np.array([model_robust.params[1][0], model_robust.params[1][1], 0])
+    #     line1_dir_3d = line1_dir_3d/np.linalg.norm(line1_dir_3d)
+        
+    #     return
+
+    def process_sfm_pc(self):
+
+        self.house_pts = process_sfm_pc(self.sfm_points)
+        
+    def get_monocular_depths_from_sfm_intersection(self):
+
+        # get the monocular depths at the intersection of the sfm points with the horizontal plane
+        
+        monocular_est_corners = []
+        ray_line_points = []
+        ray_line_edges = []
+
+        for i,vertices_set in enumerate(self.vertices_2d):
+            
+            R = self.Rs[i]
+            t = self.ts[i]
+            K = self.Ks[i]
+            Kinv = np.linalg.inv(K)
+
+            positions = np.array([vert['xy'] for vert in vertices_set]).astype(np.int32)
+            cam_center = -np.dot(R.T, t)
+            # print(cam_center)
+            curr_center_ind = len(ray_line_points)
+            # print(curr_center_ind)
+            ray_line_points.append(cam_center)
+
+            mask = {j: False for j in range(len(vertices_set))}
+            for j, vertex in enumerate(vertices_set):
+                
+                position = positions[j]
+
+                # Convert the 2D pixel position to homogeneous coordinates
+                uv = np.array([position[0], position[1], 1]).reshape(3, 1)
+
+                # Back-project to 3D camera coordinates
+                X_cam = np.dot(Kinv, uv)
+
+                # Ensure the direction is correct (from camera center towards the pixel)
+                X_ray_cam = X_cam * 2000  # Scale the ray
+
+                # Transform the ray from camera coordinates to world coordinates
+                X_ray_w = np.dot(R.T, X_ray_cam).T + cam_center
+
+                # Append the ray end point to ray_line_points
+                ray_line_points.append(X_ray_w.flatten())
+
+                # Add the edge from the camera center to the ray end point
+                ray_line_edges.append([curr_center_ind, curr_center_ind + j + 1])
+
+                # print(f"Adding edge: {curr_center_ind} {curr_center_ind + j + 1}")
+
+                # find the closest point of the ray to the house_points
+
+                house_pt_dists = np.linalg.norm(self.house_pts - cam_center, axis = 1)
+                five_closest_pts = np.argsort(house_pt_dists)[:5]
+                closest_house_pt_ind = np.argmin(np.linalg.norm(self.house_pts[five_closest_pts] - cam_center, axis = 1))
+                closest_house_pt = self.house_pts[closest_house_pt_ind]
+
+                # if np.linalg.norm(closest_house_pt - cam_center) < 2000:
+                vertex['monocular_corner'] = closest_house_pt
+                mask[j] = True
+                
+            monocular_est_corners += [vertices_set[j]['monocular_corner'] for j in range(len(vertices_set)) if mask[j]]
+        
+        self.monocular_est_corners = monocular_est_corners
+
+        # ray_line_points = np.vstack(ray_line_points)
+
+        
+
+        # o3d_ray_line = o3d.geometry.PointCloud()
+        # o3d_ray_line.points = o3d.utility.Vector3dVector(ray_line_points)
+
+        # ray_line_edges = np.array(ray_line_edges).astype(np.int32)
+        # o3d_ray_line = o3d.geometry.LineSet()
+        # o3d_ray_line.points = o3d.utility.Vector3dVector(ray_line_points)
+        # o3d_ray_line.lines = o3d.utility.Vector2iVector(ray_line_edges)
+        # o3d_ray_line.colors = o3d.utility.Vector3dVector(np.array([[255, 0, 0]]*len(ray_line_edges))/255.0)
+
+        # o3d_house_points = o3d.geometry.PointCloud()
+        # o3d_house_points.points = o3d.utility.Vector3dVector(self.house_pts)
+        # o3d_house_points.paint_uniform_color([0.5, 0.5, 0.5])
+
+        # o3d.visualization.draw_geometries([o3d_ray_line, o3d_house_points])
+
+        # #     monocular_depth_np = np.array(self.monocular_depths[i])
+        # #     scale, max_z = get_scale_from_sfm_points(monocular_depth_np, self.sfm_points, self.Ks[i], self.Rs[i], self.ts[i])
+        # #     scale = min(scale, 1.5)
+        # #     monocular_est_corners_, mask = get_monocular_depths_at(monocular_depth_np, self.Ks[i], self.Rs[i], self.ts[i], positions, scale = scale, max_z = 2*max_z)
+            
+        # #     for i,vertex in enumerate(vertices_set):
+        # #         vertex['monocular_corner'] = monocular_est_corners_[i] if mask[i] else None
+            
+        # #     monocular_est_corners += [monocular_est_corners_[i] for i in range(len(vertices_set)) if mask[i]]
+                    
+        # #     if visualize:
+
+        # #         o3d_mnocular_depth_pts = o3d.geometry.PointCloud()
+        # #         o3d_mnocular_depth_pts.points = o3d.utility.Vector3dVector(monocular_est_corners_)
+        # #         colors = np.zeros_like(monocular_est_corners_)
+        # #         colors[mask] = np.array([0, 255, 0])
+        # #         o3d_mnocular_depth_pts.colors = o3d.utility.Vector3dVector(colors)
+
+        # #         o3d_gt_wf = o3d.geometry.LineSet()
+        # #         o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
+        # #         o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+
+        # #         o3d.visualization.draw_geometries([o3d_mnocular_depth_pts, o3d_gt_wf])
+
+        # # self.monocular_est_corners = monocular_est_corners
