@@ -56,14 +56,14 @@ if __name__ == "__main__":
         triangulated_corners = np.array([corner['xyz'] for corner in house_data.triangulated_corners])
         monocular_est_corners = np.array(house_data.monocular_est_corners)
 
-        # house_data.merge_triangulated_monocular_corners_new()
-        house_data.merge_triangulated_monocular_corners_keep_all()
+        house_data.merge_triangulated_monocular_corners_new()
+        # house_data.merge_triangulated_monocular_corners_keep_all()
         
         house_data.get_num_sfm_points_within(200)
 
         house_data.get_lines_from_sfm_points(visualize = False)
             
-        house_data.get_edges(method="new_hc")
+        house_data.get_edges(method="no_edges")
 
         house_data.compute_metric()
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
 
         house_data.get_lines_from_sfm_points()
         
-        house_data.get_edges(method="no_edges")
+        house_data.get_edges(method="new_hc")
 
         house_data.compute_metric()
         # if house_data.wed > 2:

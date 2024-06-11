@@ -30,17 +30,17 @@ def get_vertices_from_gestalt(segim, color_threshold = 10):
         vertex_color = np.array(gestalt_color_mapping[vtype])
         vertex_mask = cv2.inRange(gest_seg_np,  vertex_color-color_threshold/2, vertex_color+color_threshold/2)
         # apply the max filter to merge close by clusters
-        # vertex_mask = cv2.dilate(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
-        vertex_mask  = cv2.erode(vertex_mask, np.ones((1,1), np.uint8), iterations=1)
+        vertex_mask = cv2.dilate(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
+        # vertex_mask  = cv2.erode(vertex_mask, np.ones((2,2), np.uint8), iterations=1)
         if vertex_mask.sum() > 0:
             output = cv2.connectedComponentsWithStats(vertex_mask, 8, cv2.CV_32S)
             (numLabels, labels, stats, centroids) = output
             # ipdb.set_trace()
             stats, centroids = stats[1:], centroids[1:]
             # Add the centroid of the gestalt to the list of vertices
-            inds = np.where(stats[:,4] >= 5)[0]
+            inds = np.where(stats[:,4] >= 2)[0]
             stats = stats[inds]
-            centroids = centroids[inds]
+            centroids = centroids[inds] - 2
             for i, centroid in enumerate(centroids):
                 vertices.append({"xy": centroid, "type": vtype})
             
@@ -781,7 +781,7 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t, debug_visual
     
     # print(z.min(), z.max())
     # use only the 25 percent closest points
-    max_z = np.percentile(z, 30)
+    max_z = np.percentile(z, 50)
     
     mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z)
 
@@ -800,7 +800,7 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t, debug_visual
 
     # Get the median value of the scale factor that aligns the monocular depth to the projected depth
     mask = projected_depth > 0
-    scale = np.median(monocular_depth[mask]/projected_depth[mask])
+    scale = np.mean(monocular_depth[mask]/projected_depth[mask])
     scale = 1/scale
 
     return scale, max_z

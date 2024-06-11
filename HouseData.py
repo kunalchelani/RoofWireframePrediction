@@ -297,13 +297,14 @@ class HouseData():
             vertices = np.array(self.pred_wf_vertices)
             vertex_classes = np.array(self.pred_wf_vertices_classes)
             eave_end_points_inds = np.where(vertex_classes == 'eave_end_point')[0]
-
+            flashing_end_points_inds = np.where(vertex_classes == 'flashing_end_point')[0]
+            
             for i, ind1 in enumerate(eave_end_points_inds):
-                if self.pred_verts_num_close_sfm_pts[ind1] < 5:
-                    continue
+                # if self.pred_verts_num_close_sfm_pts[ind1] < 5:
+                #     continue
                 for j, ind2 in enumerate(eave_end_points_inds):
-                    if self.pred_verts_num_close_sfm_pts[ind2] < 5:
-                        continue
+                    # if self.pred_verts_num_close_sfm_pts[ind2] < 5:
+                    #     continue
                     if i < j:
                         
                         # print(self.pred_verts_num_close_sfm_pts[ind1])
@@ -391,20 +392,19 @@ class HouseData():
                         for ind2 in connected_inds:
                             self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
 
-
             # Add the eave and apex edges
             apex_inds = np.where(vertex_classes == 'apex')[0]
             eave_inds = np.where(vertex_classes == 'eave_end_point')[0]
 
             for apex_ind in apex_inds:
                 
-                if self.pred_verts_num_close_sfm_pts[apex_ind] < 5:
-                    continue
+                # if self.pred_verts_num_close_sfm_pts[apex_ind] < 5:
+                    # continue
                 
                 for eave_ind in eave_inds:
                     
-                    if self.pred_verts_num_close_sfm_pts[eave_ind] < 5:
-                        continue
+                    # if self.pred_verts_num_close_sfm_pts[eave_ind] < 5:
+                        # continue
 
                     line_3d = vertices[apex_ind] - vertices[eave_ind]
                     line_dir_3d = line_3d/np.linalg.norm(line_3d)
@@ -430,24 +430,135 @@ class HouseData():
                         self.pred_wf_edges += [(apex_ind, eave_ind)]
                     # else:
                     #     print("Edge rejected")
-
-                    
-
-
-            # o3d_pred_points = get_triangulated_pts_o3d_pc(self.pred_wf_vertices, self.pred_wf_vertices_classes)
-            # o3d_pred_wf = o3d.geometry.LineSet()
-            # o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(self.pred_wf_vertices))
-            # o3d_pred_wf.lines = o3d.utility.Vector2iVector(np.array(self.pred_wf_edges))
-            # if len(self.pred_wf_edges) > 0:
-            #     o3d_pred_wf.colors = o3d.utility.Vector3dVector(np.array([[1, 0, 0]]*len(self.pred_wf_edges)))
-
-            # o3d_gt_wf = o3d.geometry.LineSet()
-            # o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
-            # o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
-
-            # o3d.visualization.draw_geometries([o3d_pred_wf, o3d_pred_points, o3d_gt_wf])
             
+            for i, ind1 in enumerate(apex_inds):
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if edge[0] == ind1] + [edge[0] for edge in self.pred_wf_edges if edge[1] == ind1]
+                if len(connected_inds) > 1:
+                    line_dirs_3d = np.array([vertices[ind2] - vertices[ind1] for ind2 in connected_inds])
+                    line_dirs_3d = line_dirs_3d/np.linalg.norm(line_dirs_3d)
+                    # check pairwise alignment
+                    for j, ind2 in enumerate(connected_inds):
+                        for k, ind3 in enumerate(connected_inds):
+                            if j < k:
+                                if np.abs(np.dot(line_dirs_3d[j], line_dirs_3d[k])) > 0.98:
+                                    # remove the one with the maximum distance
+                                    if np.linalg.norm(vertices[ind1] - vertices[ind2]) > np.linalg.norm(vertices[ind1] - vertices[ind3]):
+                                        self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
+                                    else:
+                                        self.pred_wf_edges.remove((ind1, ind3) if (ind1, ind3) in self.pred_wf_edges else (ind3, ind1))
+            
+            
+            for i, ind1 in enumerate(apex_inds):
+                # if self.pred_verts_num_close_sfm_pts[ind1] < 5:
+                    # continue
+                for j, ind2 in enumerate(apex_inds):
+                    # if self.pred_verts_num_close_sfm_pts[ind2] < 5:
+                        # continue
+                    if i < j:
+                        line_3d = vertices[ind1] - vertices[ind2]
+                        line_dir_3d = line_3d/np.linalg.norm(line_3d)
 
+                        if np.abs(line_dir_3d[2]) > 0.05:
+                            continue
+                        
+                        hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
+                        if np.max(hor_align) < 0.98:
+                            continue
+                        
+                        decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
+                                                    vertices[ind1], vertices[ind2], vertex_classes[ind1], vertex_classes[ind2],
+                                                    debug_visualize = False, house_number = f"{self.house_key}_{ind1}_{ind2}")
+
+                        if decision_2d:
+                            # print("Edge accepted")
+                            self.pred_wf_edges += [(ind1, ind2)]
+            
+            # Each apex can only be connected to one other apex point
+            # if there are multiple connections, only keep the one with the minimum distance
+            for i, ind1 in enumerate(apex_inds):
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if ((edge[0] == ind1) and (vertex_classes[edge[1]] == "apex"))] + \
+                                    [edge[0] for edge in self.pred_wf_edges if ((edge[1] == ind1) and (vertex_classes[edge[0]] == "apex"))]
+                
+                if len(connected_inds) > 1:
+                    # remove all edges
+                    for ind2 in connected_inds:
+                        self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
+            
+            
+            
+            # Eave flashing points connections
+            for eave_ind in eave_inds:
+                
+                # if self.pred_verts_num_close_sfm_pts[apex_ind] < 5:
+                    # continue
+                
+                for flashing_ind in flashing_end_points_inds:
+                    
+                    # if self.pred_verts_num_close_sfm_pts[eave_ind] < 5:
+                        # continue
+
+                    line_3d = vertices[flashing_ind] - vertices[eave_ind]
+                    line_dir_3d = line_3d/np.linalg.norm(line_3d)
+                    
+                    hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
+                    max_hor_align = np.max(hor_align)
+                    if max_hor_align < 0.85:
+                        continue
+                    
+                    decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
+                                                    vertices[eave_ind], vertices[flashing_ind], vertex_classes[eave_ind], vertex_classes[flashing_ind],
+                                                    debug_visualize = False, house_number = f"{self.house_key}_{ind1}_{ind2}")
+                    
+                    if decision_2d:
+                            # print("Edge accepted")
+                            self.pred_wf_edges += [(eave_ind, flashing_ind)]
+                            
+            for i, ind1 in enumerate(eave_inds):
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if ((edge[0] == ind1) and (vertex_classes[edge[1]] == "flashing_end_point"))] + \
+                                    [edge[0] for edge in self.pred_wf_edges if ((edge[1] == ind1) and (vertex_classes[edge[0]] == "flashing_end_point"))]
+                
+                if len(connected_inds) > 1:
+                    # remove all edges
+                    for ind2 in connected_inds:
+                        self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
+            
+            
+            # flashing points connections
+            for i,ind1 in enumerate(flashing_end_points_inds):
+                
+                # if self.pred_verts_num_close_sfm_pts[apex_ind] < 5:
+                    # continue
+                
+                for j,ind2 in enumerate(flashing_end_points_inds):
+                    
+                    # if self.pred_verts_num_close_sfm_pts[eave_ind] < 5:
+                        # continue
+                    if i<j:
+                        line_3d = vertices[ind1] - vertices[ind2]
+                        line_dir_3d = line_3d/np.linalg.norm(line_3d)
+                        
+                        hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
+                        max_hor_align = np.max(hor_align)
+                        if max_hor_align < 0.99:
+                            continue
+                        
+                        decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
+                                                        vertices[ind1], vertices[ind2], vertex_classes[ind1], vertex_classes[ind2],
+                                                        debug_visualize = False, house_number = f"{self.house_key}_{ind1}_{ind2}")
+                        
+                        if decision_2d:
+                                # print("Edge accepted")
+                                self.pred_wf_edges += [(ind1, ind2)]
+                            
+            for i, ind1 in enumerate(flashing_end_points_inds):
+                connected_inds = [edge[1] for edge in self.pred_wf_edges if ((edge[0] == ind1) and (vertex_classes[edge[1]] == "flashing_end_point"))] + \
+                                    [edge[0] for edge in self.pred_wf_edges if ((edge[1] == ind1) and (vertex_classes[edge[0]] == "flashing_end_point"))]
+                
+                if len(connected_inds) > 1:
+                    # remove all edges
+                    for ind2 in connected_inds:
+                        self.pred_wf_edges.remove((ind1, ind2) if (ind1, ind2) in self.pred_wf_edges else (ind2, ind1))
+                       
         else:
             raise NotImplementedError
         
@@ -851,8 +962,9 @@ class HouseData():
                             merged_pts.append(vertex['monocular_corner'])
                             merged_pts_classes.append(vertex['type'])
 
+        merge_thresh = 60 if replace_incorrect else 30
         if merge_neighbors_final:
-            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = 30, remove = False, append = False)
+            merged_pts, merged_pts_classes = process_points(merged_pts, merged_pts_classes, merge = True, merge_threshold = merge_thresh, remove = False, append = False)
         
         self.pred_wf_vertices = merged_pts
         self.pred_wf_vertices_classes = merged_pts_classes
