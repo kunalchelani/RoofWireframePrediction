@@ -44,6 +44,7 @@ def triangulate_from_viewpoints(Ks, Rs, ts, vertices, debug_visualize = False, g
         vis.run()
         vis.destroy_window()
 
+    print(len(Ks), len(Rs), len(ts), len(vertices))
     assert len(Ks) == len(Rs) == len(ts) == len(vertices)
     triangulated_points = []
     vertex_types = []

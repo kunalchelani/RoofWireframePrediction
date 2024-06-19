@@ -3,7 +3,8 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 import hoho
 from pathlib import Path
-from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, get_edges_with_support, check_edge_2d, compute_WED, compute_distances_to_line, PlaneModel
+from utils import get_vertices_from_gestalt, compute_min_dists_to_gt, get_monocular_depths_at, get_scale_from_sfm_points, \
+    get_edges_with_support, check_edge_2d, compute_WED, compute_distances_to_line, depth_to_3d_points
 from utils_new import triangulate_from_viewpoints
 from o3d_utils import get_triangulated_pts_o3d_pc, visualize_3d_line_debug, process_sfm_pc
 import ipdb
@@ -12,6 +13,7 @@ from skimage.measure import LineModelND, ransac
 from hoho import vis
 from sklearn.linear_model import RANSACRegressor
 from sklearn.base import BaseEstimator, RegressorMixin
+import cv2
 
 # from hoho import compute_WED
 class HouseData():
@@ -21,6 +23,7 @@ class HouseData():
         self.house_key = sample['__key__']
         self.gestalt_images = sample['gestalt']
         self.monocular_depths = sample['depthcm']
+        self.ade_images = sample['ade20k']
         self.monocular_depth_scale = 0.32
 
         self.Ks = sample['K']
@@ -79,8 +82,6 @@ class HouseData():
                     self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_corner_inds'] = [i]
                     self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_assoc_2d'] = [(image_vertex_inds[i][1-k], image_vertex_inds[i][2][1-k])]
         
-        min_dists_pred_to_gt, min_dists_gt_to_pred = compute_min_dists_to_gt(triangulated_corners, self.gt_wf_vertices)
-        
         self.triangulated_corners = [{"xyz" : xyz, "type" : vertex_type} for xyz, vertex_type in zip(triangulated_corners, vertex_types)]
          
         # print(np.mean(min_dists_pred_to_gt), np.mean(min_dists_gt_to_pred))
@@ -92,7 +93,30 @@ class HouseData():
         monocular_est_corners = []
         for i,vertices_set in enumerate(self.vertices_2d):
             positions = np.array([vert['xy'] for vert in vertices_set]).astype(np.int32)
+            apex_inds = np.where(np.array([vertex['type'] for vertex in vertices_set]) == 'apex')[0]
+            positions[apex_inds,1] += -7
+
             monocular_depth_np = np.array(self.monocular_depths[i])
+            segmentation = np.array(self.ade_images[i])
+            house_color = np.array([255, 9, 224])
+            building_color = np.array([180, 120, 120])
+            house_segmentation_mask = cv2.inRange(segmentation, house_color-5, house_color+5)
+            building_segmentation_mask = cv2.inRange(segmentation, building_color-5, building_color+5)
+            segmentation_mask = house_segmentation_mask + building_segmentation_mask
+            monocular_depth_np[segmentation_mask == 0] = 30000
+
+            # if the segmentation mask at a position is 1, cool otherwise replace it with the closest point where the segmentation mask is 1
+            segmented_yx = np.array(np.where(segmentation_mask > 0)).T
+            # interchange columns
+            segmented_xy = segmented_yx[:, ::-1]
+            dists_pos_segmented_area = np.linalg.norm(positions[:, np.newaxis, :] - segmented_xy[np.newaxis, :, :], axis = 2)
+            try:
+                min_dists_segmented_area = np.argmin(dists_pos_segmented_area, axis = 1)
+            except:
+                ipdb.set_trace()
+            positions = segmented_xy[min_dists_segmented_area]
+            # ipdb.set_trace()
+
             scale, max_z = get_scale_from_sfm_points(monocular_depth_np, self.sfm_points, self.Ks[i], self.Rs[i], self.ts[i])
             scale = min(scale, 1.0)
             monocular_est_corners_, mask = get_monocular_depths_at(monocular_depth_np, self.Ks[i], self.Rs[i], self.ts[i], positions, scale = scale, max_z = 2*max_z)
@@ -101,33 +125,40 @@ class HouseData():
                 dists_corners_house_pts = np.linalg.norm(self.house_pts[:, np.newaxis, :] - monocular_est_corners_[np.newaxis, :, :], axis = 2)
                 min_dists = np.min(dists_corners_house_pts, axis = 0)
 
-            for i,vertex in enumerate(vertices_set):
-                if mask[i]:
+            for j,vertex in enumerate(vertices_set):
+                if mask[j]:
                     if dist_thresh_house_pts_monocular  is not None:
-                        if min_dists[i] < dist_thresh_house_pts_monocular[vertex['type']]:
-                            vertex['monocular_corner'] = monocular_est_corners_[i]
+                        if min_dists[j] < dist_thresh_house_pts_monocular[vertex['type']]:
+                            vertex['monocular_corner'] = monocular_est_corners_[j]
                         else:
                             vertex['monocular_corner'] = None
                     else:
-                        vertex['monocular_corner'] = monocular_est_corners_[i]
+                        vertex['monocular_corner'] = monocular_est_corners_[j]
                 else:
                     vertex['monocular_corner'] = None
 
             monocular_est_corners += [monocular_est_corners_[i] for i in range(len(vertices_set)) if mask[i]]
                     
             if visualize:
-
-                o3d_mnocular_depth_pts = o3d.geometry.PointCloud()
-                o3d_mnocular_depth_pts.points = o3d.utility.Vector3dVector(monocular_est_corners_)
-                colors = np.zeros_like(monocular_est_corners_)
-                colors[mask] = np.array([0, 255, 0])
-                o3d_mnocular_depth_pts.colors = o3d.utility.Vector3dVector(colors)
+                
+                geometries = []
+                for monocular_corner in monocular_est_corners_:
+                    sphere = o3d.geometry.TriangleMesh.create_sphere(radius = 10)
+                    sphere.translate(monocular_corner)
+                    geometries.append(sphere)
+                
+                # scale the whole point cloud by the scale and convert to open3d point cloud
+                scaled_points = depth_to_3d_points(self.Ks[i], self.Rs[i], self.ts[i], monocular_depth_np, scale = scale)
+                scaled_points_o3d = o3d.geometry.PointCloud()
+                scaled_points_o3d.points = o3d.utility.Vector3dVector(scaled_points)
+                geometries.append(scaled_points_o3d)
 
                 o3d_gt_wf = o3d.geometry.LineSet()
                 o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(self.gt_wf_vertices))
                 o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(self.gt_wf_edges))
+                geometries += [o3d_gt_wf]
 
-                o3d.visualization.draw_geometries([o3d_mnocular_depth_pts, o3d_gt_wf])
+                o3d.visualization.draw_geometries(geometries)
 
         self.monocular_est_corners = monocular_est_corners
         
@@ -251,7 +282,7 @@ class HouseData():
                                                         horizontal_components = self.horizontal_components,
                                                         vertical_component = self.vertical_component,
                                                         gt_wireframe = [self.gt_wf_vertices, self.gt_wf_edges],
-                                                        debug_visualize = False, house_number = "house")
+                                                        debug_visualize = False, house_number = self.house_key)
             
             
             # self.pred_wf_edges = []
@@ -462,7 +493,7 @@ class HouseData():
                             continue
                         
                         hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
-                        if np.max(hor_align) < 0.98:
+                        if np.max(hor_align) < 0.97:
                             continue
                         
                         decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
@@ -502,8 +533,13 @@ class HouseData():
                     
                     hor_align = np.abs(np.dot((self.horizontal_components).reshape(2,3), line_dir_3d.reshape(3,1)))
                     max_hor_align = np.max(hor_align)
+                    min_hor_align = np.min(hor_align)
                     if max_hor_align < 0.85:
                         continue
+                    
+                    if min_hor_align > 0.05:
+                        continue
+
                     
                     decision_2d = check_edge_2d(self.gestalt_images, self.Ks, self.Rs, self.ts, 
                                                     vertices[eave_ind], vertices[flashing_ind], vertex_classes[eave_ind], vertex_classes[flashing_ind],
@@ -585,7 +621,7 @@ class HouseData():
     def get_lines_from_sfm_points(self, visualize = True):
 
         # project all points onto the ground plane
-        points_horizontal = self.sfm_points[:, :2]
+        points_horizontal = self.house_pts[:, :2]
         num_points = 10000
         if points_horizontal.shape[0] > num_points:
             points_horizontal = points_horizontal[np.random.choice(points_horizontal.shape[0], num_points, replace = False)]
@@ -598,7 +634,8 @@ class HouseData():
         model.estimate(points_horizontal)
 
         model_robust, inliers = ransac(points_horizontal, LineModelND, min_samples=2, residual_threshold=10, max_trials=1000)
-        #visualize the inliers using open3d
+        
+        #visualize the inliers using open3d        
         line1_dir_2d = model_robust.params[1]
         line1_dir_3d = np.array([model_robust.params[1][0], model_robust.params[1][1], 0])
         line1_dir_3d = line1_dir_3d/np.linalg.norm(line1_dir_3d)
@@ -609,6 +646,25 @@ class HouseData():
         line2_dir_3d = line2_dir_3d/np.linalg.norm(line2_dir_3d)
 
         self.horizontal_components = np.array([line1_dir_3d, line2_dir_3d])
+        
+        # inliers_o3d = o3d.geometry.PointCloud()
+        # inlier_points = points_horizontal[inliers]
+        # inliers_o3d.points = o3d.utility.Vector3dVector(np.hstack([inlier_points, np.zeros((inlier_points.shape[0], 1))]))
+        # inliers_o3d.paint_uniform_color([1, 0, 0])
+        
+        # house_pts_o3d = o3d.geometry.PointCloud()
+        # house_pts_o3d.points = o3d.utility.Vector3dVector(self.house_pts)
+        # house_pts_o3d.paint_uniform_color([0.5, 0.5, 0.5])
+        
+        # o3d_major_directions = o3d.geometry.LineSet()
+        # origin = np.array([0, 0, 0])
+        # end_points = origin + 1000*np.array([line1_dir_3d, line2_dir_3d, [0, 0, 1]])
+        # all_points = np.vstack([origin, end_points])
+        # o3d_major_directions.points = o3d.utility.Vector3dVector(all_points)
+        # o3d_major_directions.lines = o3d.utility.Vector2iVector([[0, 1], [0, 2], [0, 3]])
+        # # color the major directions r g b
+        # o3d_major_directions.colors = o3d.utility.Vector3dVector(np.array([[255.0, 0, 0], [0, 255.0, 0], [0, 0, 255.0]])/255.0)
+        # o3d.visualization.draw_geometries([house_pts_o3d, o3d_major_directions, house_pts_o3d, inliers_o3d])
 
         # if visualize:
         # o3d_major_directions = o3d.geometry.LineSet()
@@ -651,8 +707,9 @@ class HouseData():
         for i, im in enumerate(self.gestalt_images):
             plt.imshow(im)
             for vertex in self.vertices_2d[i]:
-                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=30, color='black')
-            plt.savefig(f"data/visuals_new/june10_2d/{self.house_key}_{i}.png")
+                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=50, color='black')
+            plt.axis('off')
+            plt.savefig(f"data/visuals_new/pres/{self.house_key}_{i}.png")
             plt.close()
             
             # plot the depth images as well
@@ -661,8 +718,9 @@ class HouseData():
             depth_image_np = np.array(depth_image_pil)
             plt.imshow(depth_image_np)
             for vertex in self.vertices_2d[i]:
-                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=30, color='black')
-            plt.savefig(f"data/visuals_new/june10_2d/{self.house_key}_{i}_depth.png")
+                plt.scatter(vertex['xy'][0], vertex['xy'][1], marker='x', s=50, color='black')
+            plt.axis('off')
+            plt.savefig(f"data/visuals_new/pres/{self.house_key}_{i}_depth.png")
             plt.close()
             # highlight the top 30 percentile
             # plt.show()
@@ -729,7 +787,7 @@ class HouseData():
                 X_cam = np.dot(Kinv, uv)
 
                 # Ensure the direction is correct (from camera center towards the pixel)
-                X_ray_cam = X_cam * 2000  # Scale the ray
+                X_ray_cam = X_cam * 3000  # Scale the ray
 
                 # Transform the ray from camera coordinates to world coordinates
                 X_ray_w = np.dot(R.T, X_ray_cam).T + cam_center
@@ -908,7 +966,7 @@ class HouseData():
                     self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_corner_inds'] = [i]
                     self.vertices_2d[assoc_vertex[0]][assoc_vertex[1]]['tri_assoc_2d'] = [(image_vertex_inds[i][1-k], image_vertex_inds[i][2][1-k])]
         
-        min_dists_pred_to_gt, min_dists_gt_to_pred = compute_min_dists_to_gt(triangulated_corners, self.gt_wf_vertices)
+        # min_dists_pred_to_gt, min_dists_gt_to_pred = compute_min_dists_to_gt(triangulated_corners, self.gt_wf_vertices)
         
         self.triangulated_corners = [{"xyz" : xyz, "type" : vertex_type} for xyz, vertex_type in zip(triangulated_corners, vertex_types)]
 

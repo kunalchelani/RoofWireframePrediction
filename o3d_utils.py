@@ -118,8 +118,13 @@ def visualize_final_solution(pred_wf_edges, pred_wf_vertices, pred_wf_vertices_c
 
     geometries = []
     if (pred_wf_vertices is not None) and (pred_wf_vertices_classes is not None):
-        o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
-        geometries += [o3d_pred_points]
+        # o3d_pred_points = get_triangulated_pts_o3d_pc(pred_wf_vertices, pred_wf_vertices_classes)
+        for i in range(len(pred_wf_vertices)):
+            o3d_pred_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=20)
+            o3d_pred_sphere.translate(pred_wf_vertices[i])
+            o3d_pred_sphere.paint_uniform_color([0, 0, 1])
+            geometries += [o3d_pred_sphere]
+
         if (pred_wf_edges is not None) and (len(pred_wf_edges) > 0):
             o3d_pred_wf = o3d.geometry.LineSet()
             o3d_pred_wf.points = o3d.utility.Vector3dVector(np.array(pred_wf_vertices))
@@ -135,6 +140,12 @@ def visualize_final_solution(pred_wf_edges, pred_wf_vertices, pred_wf_vertices_c
         geometries += [o3d_sfm_points]
 
     if gt_wf_vertices is not None:
+        for i in range(len(gt_wf_vertices)):
+            o3d_gt_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=20)
+            o3d_gt_sphere.translate(gt_wf_vertices[i])
+            o3d_gt_sphere.paint_uniform_color([0, 1, 0])
+            geometries += [o3d_gt_sphere]
+
         o3d_gt_wf = o3d.geometry.LineSet()
         o3d_gt_wf.points = o3d.utility.Vector3dVector(np.array(gt_wf_vertices))
         o3d_gt_wf.lines = o3d.utility.Vector2iVector(np.array(gt_wf_edges))

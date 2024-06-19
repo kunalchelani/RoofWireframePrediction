@@ -11,7 +11,8 @@ import o3d_utils
 import matplotlib
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import RANSACRegressor
-
+from PIL import Image
+from PIL import ImageFilter
 # matplotlib.use('GTK4Agg')
 
 def get_vertices_from_gestalt(segim, color_threshold = 10):
@@ -24,7 +25,7 @@ def get_vertices_from_gestalt(segim, color_threshold = 10):
     # Types of vertices - apex and eave_end_point
 
     vertices = []
-    
+    h,w = segim.shape[:2]
     for vtype in ['apex', 'eave_end_point', 'flashing_end_point']:
         gest_seg_np = np.array(segim)
         vertex_color = np.array(gestalt_color_mapping[vtype])
@@ -40,7 +41,19 @@ def get_vertices_from_gestalt(segim, color_threshold = 10):
             # Add the centroid of the gestalt to the list of vertices
             inds = np.where(stats[:,4] >= 2)[0]
             stats = stats[inds]
-            centroids = centroids[inds] - 2
+            centroids = centroids[inds]
+            # if vtype == 'apex':
+            #     centroids[:,1] -= 1
+            # else:
+            #     # move towards the center of the image
+            #     center = np.array([w//2, h//2])
+            #     move_dir = center - centroids
+            #     move_dir = move_dir/np.linalg.norm(move_dir, axis=1).reshape(-1,1)
+            #     centroids += 2*move_dir
+            #     centroids[:,0] = np.clip(centroids[:,0], 0, w-1)
+            #     centroids[:,1] = np.clip(centroids[:,1], 0, h-1)
+            #     centroids = centroids.astype(np.int32)
+        
             for i, centroid in enumerate(centroids):
                 vertices.append({"xy": centroid, "type": vtype})
             
@@ -686,7 +699,7 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
                     support_ims += 1
 
 
-                if debug_visualize  and (class_i == "apex" and class_j == "apex"):
+                if debug_visualize:
                     title = f"Support points: {support_pts}, decision: {support_pts >= 5}, class i: {class_i}, class j: {class_j}"
                     # plot the projected points and the line connecting them on top of the segmented image
                     fig = plt.figure(figsize=(12,12))
@@ -695,8 +708,8 @@ def get_edges_with_support(points_3d_coords, points_3d_classes, gestalt_segmente
                     plt.scatter(proj_j[0], proj_j[1], c='black', s=25, marker='x')
                     plt.plot([proj_i[0], proj_j[0]], [proj_i[1], proj_j[1]], c='black', lw=2)
                     plt.title(title)
-                    plt.show()
-                    # plt.savefig(f"data/visuals_new/debug_edges/house_{house_number}_line_{i}_{j}_image_{k}.png")
+                    plt.axis('off')
+                    plt.savefig(f"data/visuals_new/pres/edges_house_{house_number}_line_{i}_{j}_image_{k}.png")
                     # plt.close()
 
             # print("Support ims: ", support_ims)
@@ -725,7 +738,7 @@ def compute_min_dists_to_gt(perdicted_points, gt_points):
     min_dists_pred_to_gt = np.min(pwise_dists, axis = 1)
     min_dists_gt_to_pred = np.min(pwise_dists, axis = 0)
 
-    return min_dists_pred_to_gt, min_dists_gt_to_pred
+    return min_dists_pred_to_gt, min_dists_gt_to_pred, pwise_dists
 
 
 def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, max_z = 3000, average = False):
@@ -745,7 +758,10 @@ def get_monocular_depths_at(monocular_depth, K, R, t, positions, scale = 0.32, m
             xyz = np.dot(Kinv, uv.T).T * np.array(depths.reshape(-1,1)) * scale
     
     uv = np.hstack((positions.reshape(-1,2), np.ones((positions.shape[0], 1)))).astype(np.int32)
-
+    
+    # apply the min filter to choose the min value for every 3x3 window
+    # monocular_depth = cv2.erode(monocular_depth, np.ones((3,3)))
+            
     # Sample the depths at these points
     depths =  monocular_depth[uv[:,1], uv[:,0]]
 
@@ -781,9 +797,9 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t, debug_visual
     
     # print(z.min(), z.max())
     # use only the 25 percent closest points
-    max_z = np.percentile(z, 50)
+    max_z = np.percentile(z, 30)
     
-    mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z)
+    mask = (x >= 0) & (x < monocular_depth.shape[1]) & (y >= 0) & (y < monocular_depth.shape[0]) & (z < max_z) 
 
     x = x[mask]
     y = y[mask]
@@ -797,10 +813,21 @@ def get_scale_from_sfm_points(monocular_depth, sfm_points, K, R, t, debug_visual
     y = y[idx]
 
     projected_depth[y,x] = z[idx]
+    
+    # projected_depth_plot = projected_depth.copy().astype(np.uint8)
+    # projected_depth_plot[projected_depth_plot > 0] = 255
+    # # gaussian smoothing
+    # projected_depth_plot = Image.fromarray(projected_depth_plot)
+    # projected_depth_plot = projected_depth_plot.filter(ImageFilter.GaussianBlur(5))
+    # projected_depth_plot = np.array(projected_depth_plot)
+    # plt.imshow(255*projected_depth_plot/(max_z-500))
+    # random_name = str(np.random.randint(1000))
+    # plt.axis('off')
+    # plt.savefig(f"data/visuals_new/pres/projected_depth_{random_name}.png")
 
     # Get the median value of the scale factor that aligns the monocular depth to the projected depth
-    mask = projected_depth > 0
-    scale = np.mean(monocular_depth[mask]/projected_depth[mask])
+    mask = (projected_depth > 0) & (monocular_depth < 30000)
+    scale = np.median(monocular_depth[mask]/projected_depth[mask])
     scale = 1/scale
 
     return scale, max_z
@@ -1046,11 +1073,12 @@ def compute_distances_to_line(points, line_point, line_dir):
     
     return distances
 
-class PlaneModel(BaseEstimator, RegressorMixin):
-    def fit(self, X, y):
-        A = np.c_[X, np.ones(X.shape[0])]
-        self.coef_, self.intercept_ = np.linalg.lstsq(A, y, rcond=None)[0][:3], np.linalg.lstsq(A, y, rcond=None)[0][3]
-        return self
-
-    def predict(self, X):
-        return np.dot(X, self.coef_) + self.intercept_
+def depth_to_3d_points(K, R, t, depthim, scale = 1.0):
+    # get 3D points from a depth image
+    Kinv = np.linalg.inv(K)
+    h, w = depthim.shape
+    x, y = np.meshgrid(np.arange(w), np.arange(h))
+    uv = np.vstack((x.ravel(), y.ravel(), np.ones_like(x.ravel())))
+    xyz = np.dot(Kinv, uv) * np.array(depthim).ravel() * scale
+    xyz = np.dot(R.T, xyz - t.reshape(3,1))
+    return xyz.T
