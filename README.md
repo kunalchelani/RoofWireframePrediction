@@ -12,5 +12,5 @@
 3. Use `visualize_triangulated_gt_vertices.py` to visualize a result in 3D
 
 ### Running the pipeline
-The file `solution_v1.py` contains the the handcrafted solution. Executing the tasks parallely sometimes gets the processes killed, probably because of resources - need to look into that. 
-Might have to first create the dir data/output in the project home directory and run it from the same path to not have any path related issues.
+The file `build_wireframes.py` is the main file, while most functions are in `HouseData.py` and `utils.py`
+Most functions have an option to visualize to debug.
