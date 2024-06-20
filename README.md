@@ -23,4 +23,8 @@ The report contains most details about the method. Feel free to raise a pull req
 
 :
 <!-- Insert plot -->
-![Distribution of WED over 1000 training scenes](plots/weds_dist.png)
+<div style="text-align: center;">
+  <img src="plots/weds_dist.png" alt="Alt text" />
+  <p><em>Distribution of WED over 1000 training scenes</em></p>
+</div>
+
