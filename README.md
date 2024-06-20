@@ -18,3 +18,9 @@ Most functions have an option to visualize to debug. You will need to have acces
 Note : The code is not clean and commented as this was inted for the workshop challenge and I am not building upon this solution at the moment.
 This is meant as a handcrafted baseline for future solutions.
 The report contains most details about the method. Feel free to raise a pull request if you notice a correction.
+
+### Analysis
+
+:
+<!-- Insert plot -->
+![Distribution of WED over 1000 training scenes](plots/weds_dist.png)
