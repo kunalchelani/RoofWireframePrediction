@@ -15,7 +15,7 @@
 The file `build_wireframes.py` is the main file, while most functions are in `HouseData.py` and `utils.py`
 Most functions have an option to visualize to debug. You will need to have access to the (not public) hoho dataset on huggingface.
 
-Note : The code is not clean and commented as this was inted for the workshop challenge and I am not building upon this solution at the moment.
+Note : The code is not clean and commented as this was intended for the USM3D S23DR workshop challenge and I am not building upon this solution at the moment.
 This is meant as a handcrafted baseline for future solutions.
 The report contains most details about the method. Feel free to raise a pull request if you notice a correction.
 
