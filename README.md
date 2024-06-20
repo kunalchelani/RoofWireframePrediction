@@ -21,10 +21,12 @@ The report contains most details about the method. Feel free to raise a pull req
 
 ### Analysis
 
-:
 <!-- Insert plot -->
-<div style="text-align: center;">
-  <img src="plots/weds_dist.png" alt="Alt text" />
-  <p><em>Distribution of WED over 1000 training scenes</em></p>
-</div>
-
+<table>
+  <tr>
+    <td align="center">
+      <img src="plots/weds_dist.png" alt="Alt text" style="width: 50%;"/><br>
+      <em>Distribution of WED over 1000 training scenes</em>
+    </td>
+  </tr>
+</table>
