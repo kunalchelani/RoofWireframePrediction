@@ -12,7 +12,7 @@
 3. Use `visualize_triangulated_gt_vertices.py` to visualize a result in 3D
 
 ### Running the pipeline
-The file `build_wireframes.py` is the main file, while most functions are in `HouseData.py` and `utils.py`
+The file `build_wireframes.py` is the main file, while the bigger chunk of functionality is in `HouseData.py` and `utils.py`.
 Most functions have an option to visualize to debug. You will need to have access to the (not public) hoho dataset on huggingface.
 
 Note : The code is not clean and commented as this was intended for the USM3D S23DR workshop challenge and I am not building upon this solution at the moment.
